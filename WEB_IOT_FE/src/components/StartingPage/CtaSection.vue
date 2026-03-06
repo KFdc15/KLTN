@@ -15,7 +15,7 @@ import { reveal as vReveal } from '../../directives/reveal'
 				</p>
 				<div class="mt-7 flex flex-wrap items-center gap-3">
 					<RouterLink
-						to="/"
+						to="../signup"
 						class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-900/10 transition hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
 					>
 						Create Account
