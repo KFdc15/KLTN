@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reveal as vReveal } from '../directives/reveal'
+import { reveal as vReveal } from '../../directives/reveal'
 
 type Feature = {
 	title: string

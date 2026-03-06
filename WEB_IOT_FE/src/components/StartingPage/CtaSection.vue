@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reveal as vReveal } from '../directives/reveal'
+import { reveal as vReveal } from '../../directives/reveal'
 </script>
 
 <template>
@@ -11,21 +11,21 @@ import { reveal as vReveal } from '../directives/reveal'
 			<div class="relative">
 				<h2 class="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Start managing your IoT devices today</h2>
 				<p class="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-					Create an account to track your fleet, monitor telemetry, and send control commands securely.
+					Create an account and start monitoring your fleet.
 				</p>
 				<div class="mt-7 flex flex-wrap items-center gap-3">
-					<a
-						href="#home"
+					<RouterLink
+						to="/"
 						class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-900/10 transition hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
 					>
 						Create Account
-					</a>
-					<a
-						href="#features"
+					</RouterLink>
+					<RouterLink
+						to="/features"
 						class="inline-flex items-center justify-center rounded-2xl border border-white/40 bg-white/60 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:bg-white"
 					>
 						View Features
-					</a>
+					</RouterLink>
 				</div>
 			</div>
 

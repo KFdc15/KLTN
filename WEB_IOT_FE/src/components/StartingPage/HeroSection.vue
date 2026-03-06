@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import DashboardPreview from './DashboardPreview.vue'
-import FloatingIcons from './FloatingIcons.vue'
-import { reveal as vReveal } from '../directives/reveal'
+import DashboardPreview from '././DashboardPreview.vue'
+import FloatingIcons from '././FloatingIcons.vue'
+import { reveal as vReveal } from '../../directives/reveal'
 </script>
 
 <template>
@@ -24,22 +24,22 @@ import { reveal as vReveal } from '../directives/reveal'
 						</p>
 
 						<div class="mt-8 flex flex-wrap items-center gap-3">
-							<a
-								href="#contact"
+							<RouterLink
+								to="/contact"
 								class="group inline-flex items-center justify-center rounded-2xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-900/10 transition hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
 							>
 								Get Started
 								<span class="ml-2 inline-block transition group-hover:translate-x-0.5">→</span>
-							</a>
-							<a
-								href="#features"
+							</RouterLink>
+							<RouterLink
+								to="/features"
 								class="inline-flex items-center justify-center rounded-2xl border border-white/40 bg-white/60 px-5 py-3 text-sm font-semibold text-slate-800 transition hover:bg-white"
 							>
 								Learn More
-							</a>
+							</RouterLink>
 						</div>
 
-						<div class="mt-10 grid grid-cols-3 gap-4 max-w-md">
+						<div class="mt-10 grid grid-cols-2 gap-4 max-w-md">
 							<div class="rounded-2xl border border-white/40 bg-white/50 p-4">
 								<div class="text-xs text-slate-600">Devices</div>
 								<div class="mt-1 text-xl font-semibold text-slate-900">120+</div>
@@ -47,10 +47,6 @@ import { reveal as vReveal } from '../directives/reveal'
 							<div class="rounded-2xl border border-white/40 bg-white/50 p-4">
 								<div class="text-xs text-slate-600">Uptime</div>
 								<div class="mt-1 text-xl font-semibold text-slate-900">99.9%</div>
-							</div>
-							<div class="rounded-2xl border border-white/40 bg-white/50 p-4">
-								<div class="text-xs text-slate-600">Security</div>
-								<div class="mt-1 text-xl font-semibold text-slate-900">TLS</div>
 							</div>
 						</div>
 					</div>

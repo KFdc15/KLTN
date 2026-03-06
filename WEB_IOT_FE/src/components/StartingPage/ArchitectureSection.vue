@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { reveal as vReveal } from '../directives/reveal'
+import { reveal as vReveal } from '../../directives/reveal'
 </script>
 
 <template>
@@ -8,8 +8,7 @@ import { reveal as vReveal } from '../directives/reveal'
 			<div v-reveal>
 				<h2 class="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">Architecture Preview</h2>
 				<p class="mt-3 text-sm leading-6 text-slate-600">
-					A clean end-to-end flow from devices to dashboard. Built for LPWAN deployments where reliability and
-					observability matter.
+					Clean end-to-end flow from devices to dashboard.
 				</p>
 				<ul class="mt-6 space-y-3 text-sm text-slate-700">
 					<li class="flex gap-2">
@@ -19,10 +18,6 @@ import { reveal as vReveal } from '../directives/reveal'
 					<li class="flex gap-2">
 						<span class="mt-1 h-2 w-2 rounded-full bg-sky-600/70" />
 						<span>Backend ingestion, storage, and rule engine</span>
-					</li>
-					<li class="flex gap-2">
-						<span class="mt-1 h-2 w-2 rounded-full bg-sky-600/70" />
-						<span>Web dashboard with realtime updates</span>
 					</li>
 				</ul>
 			</div>
