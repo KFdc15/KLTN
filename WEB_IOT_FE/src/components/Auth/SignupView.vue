@@ -82,7 +82,5 @@ import LandingNavbar from '../LandingNavbar.vue'
 				</div>
 			</div>
 		</main>
-
-		<LandingFooter />
 	</div>
 </template>

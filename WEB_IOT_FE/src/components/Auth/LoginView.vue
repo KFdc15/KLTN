@@ -62,7 +62,7 @@ import LandingNavbar from '../LandingNavbar.vue'
 					</form>
 
 					<p class="mt-6 text-center text-sm text-slate-600">
-						Don’t have an account?
+						Don't have an account?
 						<RouterLink to="/signup" class="ml-1 font-semibold text-slate-900 hover:underline">
 							Sign up
 						</RouterLink>
@@ -70,7 +70,5 @@ import LandingNavbar from '../LandingNavbar.vue'
 				</div>
 			</div>
 		</main>
-
-		<LandingFooter />
 	</div>
 </template>
