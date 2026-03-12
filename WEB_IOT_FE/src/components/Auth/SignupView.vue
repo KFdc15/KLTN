@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import LandingFooter from '../LandingFooter.vue'
 import LandingNavbar from '../LandingNavbar.vue'
 </script>
 
