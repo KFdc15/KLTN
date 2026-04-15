@@ -13,6 +13,37 @@ const routes: RouteRecordRaw[] = [
 		meta: { scrollTo: 'home' },
 	},
 	{
+		path: '/app',
+		component: () => import('../layouts/DashboardLayout.vue'),
+		children: [
+			{ path: '', redirect: '/app/dashboard' },
+			{
+				path: 'dashboard',
+				name: 'app-dashboard',
+				component: () => import('../components/dashboard/Dashboard.vue'),
+				meta: { title: 'Dashboard' },
+			},
+			{
+				path: 'settings',
+				name: 'app-settings',
+				component: () => import('../components/dashboard/AccountSettings.vue'),
+				meta: { title: 'Account settings' },
+			},
+			{
+				path: 'devices',
+				name: 'app-devices',
+				component: () => import('../components/dashboard/Devices.vue'),
+				meta: { title: 'My Devices' },
+			},
+			{
+				path: 'add-device',
+				name: 'app-add-device',
+				component: () => import('../components/dashboard/AddDevice.vue'),
+				meta: { title: 'Add Device' },
+			},
+		],
+	},
+	{
 		path: '/login',
 		name: 'login',
 		component: () => import('../components/Auth/LoginView.vue'),
@@ -66,6 +97,15 @@ export const router = createRouter({
 			})
 		})
 	},
+})
+
+router.beforeEach((to) => {
+	const token = localStorage.getItem('accessToken') ?? sessionStorage.getItem('accessToken')
+	const authed = Boolean(token && token.trim().length)
+
+	if (to.path.startsWith('/app') && !authed) return { path: '/login' }
+	if ((to.path === '/login' || to.path === '/signup') && authed) return { path: '/app/dashboard' }
+	return true
 })
 
 export const SECTION_ROUTES = [

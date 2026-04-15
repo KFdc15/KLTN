@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { CpuChipIcon } from '@heroicons/vue/24/outline'
 import { SECTION_ROUTES, type SectionId } from '../router'
 
 const isOpen = ref(false)
@@ -114,7 +115,11 @@ onBeforeUnmount(() => {
 		<nav class="border-b border-white/30 bg-white/60 backdrop-blur-md">
 			<div class="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
 				<RouterLink to="/" class="flex items-center gap-2" @click="onNavigate">
-					<div class="h-9 w-9 rounded-2xl bg-linear-to-br from-sky-600/30 to-indigo-600/30" />
+					<div
+						class="h-9 w-9 rounded-2xl bg-linear-to-br from-sky-600/30 to-indigo-600/30 grid place-items-center"
+					>
+						<CpuChipIcon class="h-5 w-5 text-slate-900" />
+					</div>
 					<span class="text-sm font-semibold tracking-tight text-slate-900">IoT Platform</span>
 				</RouterLink>
 

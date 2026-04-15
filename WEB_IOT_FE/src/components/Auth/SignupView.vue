@@ -1,5 +1,37 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
 import LandingNavbar from '../LandingNavbar.vue'
+
+import { useAuthStore } from '../../store/authStore'
+
+const router = useRouter()
+const auth = useAuthStore()
+
+const fullName = ref('')
+const email = ref('')
+const password = ref('')
+const confirmPassword = ref('')
+
+const passwordsMatch = computed(() =>
+	Boolean(password.value.length && confirmPassword.value.length && password.value === confirmPassword.value)
+)
+
+const passwordsMismatch = computed(() => Boolean(confirmPassword.value.length && password.value !== confirmPassword.value))
+
+const canSubmit = computed(
+	() => Boolean(fullName.value.trim() && email.value.trim() && passwordsMatch.value && !auth.loading)
+)
+
+async function submit() {
+	if (password.value !== confirmPassword.value) {
+		auth.setError('Passwords do not match', 3000)
+		return
+	}
+	const ok = await auth.signup(email.value, password.value, fullName.value)
+	if (ok) router.push('/app/dashboard')
+}
 </script>
 
 <template>
@@ -19,13 +51,14 @@ import LandingNavbar from '../LandingNavbar.vue'
 						<p class="text-sm text-slate-600">Sign up to start using the platform.</p>
 					</div>
 
-					<form class="mt-6 space-y-4" @submit.prevent>
+					<form class="mt-6 space-y-4" @submit.prevent="submit">
 						<div class="space-y-2">
 							<label class="text-sm font-medium text-slate-700">Full name</label>
 							<input
 								type="text"
 								autocomplete="name"
 								required
+								v-model="fullName"
 								class="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:border-slate-300"
 								placeholder="Your name"
 							/>
@@ -37,6 +70,7 @@ import LandingNavbar from '../LandingNavbar.vue'
 								type="email"
 								autocomplete="email"
 								required
+								v-model="email"
 								class="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:border-slate-300"
 								placeholder="you@example.com"
 							/>
@@ -48,6 +82,7 @@ import LandingNavbar from '../LandingNavbar.vue'
 								type="password"
 								autocomplete="new-password"
 								required
+								v-model="password"
 								class="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:border-slate-300"
 								placeholder="Create a password"
 							/>
@@ -59,6 +94,7 @@ import LandingNavbar from '../LandingNavbar.vue'
 								type="password"
 								autocomplete="new-password"
 								required
+								v-model="confirmPassword"
 								class="w-full rounded-2xl border border-slate-200/70 bg-white/80 px-4 py-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition focus:bg-white focus:border-slate-300"
 								placeholder="Repeat password"
 							/>
@@ -66,10 +102,16 @@ import LandingNavbar from '../LandingNavbar.vue'
 
 						<button
 							type="submit"
+							:disabled="!canSubmit"
 							class="mt-2 w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white shadow-sm shadow-slate-900/10 transition hover:-translate-y-0.5 hover:bg-slate-800 active:translate-y-0"
 						>
 							Sign Up
 						</button>
+
+						<p v-if="passwordsMatch" class="text-sm text-emerald-700">Passwords match</p>
+						<p v-else-if="passwordsMismatch" class="text-sm text-red-700">Passwords do not match</p>
+
+						<p v-if="auth.error" class="text-sm text-red-700">{{ auth.error }}</p>
 					</form>
 
 					<p class="mt-6 text-center text-sm text-slate-600">

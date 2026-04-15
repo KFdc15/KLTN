@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import DashboardPreview from '././DashboardPreview.vue'
-import FloatingIcons from '././FloatingIcons.vue'
+import DashboardPreview from './DashboardPreview.vue'
+import FloatingIcons from './FloatingIcons.vue'
 import { reveal as vReveal } from '../../directives/reveal'
 </script>
 

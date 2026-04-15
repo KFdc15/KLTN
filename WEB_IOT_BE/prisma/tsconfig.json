@@ -1,0 +1,9 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"noEmit": true,
+		"moduleResolution": "Node16"
+	},
+	"include": ["./seed.ts"]
+}
