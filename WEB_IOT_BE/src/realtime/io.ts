@@ -12,9 +12,10 @@ export function userRoom(userId: string) {
 }
 
 export function initIO(server: HttpServer) {
+	const corsOrigin = env.NODE_ENV === 'production' ? (env.CORS_ORIGIN.length ? env.CORS_ORIGIN : false) : true
 	io = new SocketIOServer(server, {
 		cors: {
-			origin: env.CORS_ORIGIN.length ? env.CORS_ORIGIN : true,
+			origin: corsOrigin,
 			credentials: true,
 		},
 	})

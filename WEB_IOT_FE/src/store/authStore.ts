@@ -18,8 +18,9 @@ const TOKEN_KEY = 'accessToken'
 const REMEMBER_EMAIL_KEY = 'rememberEmail'
 
 function readTokenFromStorage(): string | null {
-	const localToken = localStorage.getItem(TOKEN_KEY)
-	if (localToken && localToken.trim().length) return localToken
+	// Session-only auth: keep logged in while the tab is open.
+	// Do not persist tokens across browser restarts.
+	localStorage.removeItem(TOKEN_KEY)
 	const sessionToken = sessionStorage.getItem(TOKEN_KEY)
 	if (sessionToken && sessionToken.trim().length) return sessionToken
 	return null
@@ -79,8 +80,9 @@ export const useAuthStore = defineStore('auth', {
 				})
 				this.user = data.user
 			} catch {
-				// Token might be expired/invalid
-				this.logout()
+				// Keep the session; backend might be restarting/unreachable.
+				// The UI can still work with a token even if /me fails temporarily.
+				this.user = null
 			}
 		},
 		restoreSession() {
@@ -93,11 +95,9 @@ export const useAuthStore = defineStore('auth', {
 			this.user = payload.user
 			// Ensure token lives in only one place.
 			clearTokenFromStorage()
-			if (rememberMe) {
-				localStorage.setItem(TOKEN_KEY, payload.accessToken)
-			} else {
-				sessionStorage.setItem(TOKEN_KEY, payload.accessToken)
-			}
+			// Always sessionStorage: closes with tab/browser.
+			sessionStorage.setItem(TOKEN_KEY, payload.accessToken)
+			void rememberMe
 		},
 		logout() {
 			this.accessToken = null

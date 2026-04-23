@@ -32,17 +32,6 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 		return (await res.json()) as T
 	}
 
-	// If the backend rejects the token (common after db reset/seed),
-	// clear persisted auth so the app doesn't get stuck in an "authed" state.
-	if (res.status === 401) {
-		localStorage.removeItem('accessToken')
-		sessionStorage.removeItem('accessToken')
-		// Router uses hash history; force redirect if we're in an app route.
-		if (window.location.hash.startsWith('#/app')) {
-			window.location.hash = '#/login'
-		}
-	}
-
 	let message = `Request failed (${res.status})`
 	try {
 		const body = (await res.json()) as ApiErrorBody

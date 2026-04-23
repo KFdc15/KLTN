@@ -75,7 +75,7 @@ async function submit() {
 						<div class="flex items-center justify-between">
 							<label class="inline-flex items-center gap-2 text-sm text-slate-600">
 								<input v-model="rememberMe" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
-								Remember me
+								Remember email
 							</label>
 							<a href="#" class="text-sm font-medium text-slate-700 hover:text-slate-900">
 								Forgot password?

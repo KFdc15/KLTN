@@ -309,7 +309,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 								type="button"
 								class="group grid h-28 w-28 place-items-center rounded-full bg-gray-900 text-white shadow-sm ring-8 ring-gray-200 transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
 								:class="d.lightOn ? 'ring-green-200' : 'ring-gray-200'"
-								:disabled="d.status === 'OFFLINE'"
+								:disabled="d.status === 'OFFLINE' || store.isLightBusy(d.id)"
 								@click="toggleLight(d)"
 							>
 								<span class="text-xl font-semibold tracking-wide">{{ d.lightOn ? 'ON' : 'OFF' }}</span>
@@ -333,7 +333,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 							<button
 								type="button"
 								class="inline-flex w-full items-center justify-center rounded-xl bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
-								:disabled="d.status === 'OFFLINE'"
+								:disabled="d.status === 'OFFLINE' || store.isAcBusy(d.id)"
 								@click="toggleAirConditioner(d)"
 							>
 								{{ d.acOn ? 'Turn off' : 'Turn on' }}
@@ -352,6 +352,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 								step="1"
 								class="mt-2 w-full"
 								:value="acDraftValue(d)"
+								:disabled="d.status === 'OFFLINE' || store.isAcTargetBusy(d.id)"
 								@input="onAcDraftInput(d.id, $event)"
 								@change="onAcTargetChange(d, $event)"
 							/>

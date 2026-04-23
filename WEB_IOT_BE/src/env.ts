@@ -33,7 +33,7 @@ export const env: AppEnv = {
 	NODE_ENV: (process.env.NODE_ENV as AppEnv['NODE_ENV']) ?? 'development',
 	CORS_ORIGIN: parseOrigins(process.env.CORS_ORIGIN),
 	JWT_ACCESS_SECRET: process.env.JWT_ACCESS_SECRET ?? '',
-	JWT_ACCESS_TTL: process.env.JWT_ACCESS_TTL ?? '15m',
+	JWT_ACCESS_TTL: process.env.JWT_ACCESS_TTL ?? '7d',
 	DEVICE_OFFLINE_AFTER_SECONDS: parseNumber(process.env.DEVICE_OFFLINE_AFTER_SECONDS, 60),
 	DEVICE_OFFLINE_CHECK_INTERVAL_SECONDS: parseNumber(process.env.DEVICE_OFFLINE_CHECK_INTERVAL_SECONDS, 30),
 	MQTT_URL: process.env.MQTT_URL ?? '',

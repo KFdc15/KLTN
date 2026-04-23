@@ -100,7 +100,10 @@ export const router = createRouter({
 })
 
 router.beforeEach((to) => {
-	const token = localStorage.getItem('accessToken') ?? sessionStorage.getItem('accessToken')
+	// Session-only auth: only sessionStorage counts.
+	// Clear any stale localStorage token from older builds.
+	localStorage.removeItem('accessToken')
+	const token = sessionStorage.getItem('accessToken')
 	const authed = Boolean(token && token.trim().length)
 
 	if (to.path.startsWith('/app') && !authed) return { path: '/login' }

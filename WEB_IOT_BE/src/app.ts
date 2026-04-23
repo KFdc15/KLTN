@@ -10,11 +10,12 @@ import { requireAuth } from './middleware/requireAuth'
 
 export function createApp() {
 	const app = express()
+	const corsOrigin = env.NODE_ENV === 'production' ? (env.CORS_ORIGIN.length ? env.CORS_ORIGIN : false) : true
 
 	app.use(helmet())
 	app.use(
 		cors({
-			origin: env.CORS_ORIGIN.length ? env.CORS_ORIGIN : true,
+			origin: corsOrigin,
 			credentials: true,
 		})
 	)

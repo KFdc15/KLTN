@@ -51,6 +51,19 @@ type DeviceRuntimeEvent = {
 	acTargetTempC?: number
 }
 
+type PendingRuntime = {
+	lightOn?: boolean
+	acOn?: boolean
+	acTargetTempC?: number
+}
+
+const PENDING_RUNTIME_MS = 8000
+const pendingTimers = new Map<string, number>()
+
+function pendingKey(deviceId: string, field: keyof PendingRuntime) {
+	return `${deviceId}:${field}`
+}
+
 type CameraFrameEvent = {
 	deviceId: string
 	ts: string
@@ -65,6 +78,7 @@ export const useDeviceStore = defineStore('device', {
 		return {
 			devices: [] as Device[],
 			telemetryWindowByDeviceId: {} as Record<string, TelemetryPoint[]>,
+			pendingRuntimeByDeviceId: {} as Record<string, PendingRuntime>,
 			relativeTimeTick: 0,
 			loading: false,
 			error: null as string | null,
@@ -78,8 +92,50 @@ export const useDeviceStore = defineStore('device', {
 		offlineDevices: (state) => state.devices.filter((d) => d.status === 'OFFLINE').length,
 		alerts: (state) => state.devices.filter((d) => d.status === 'WARNING').length,
 		recentDevices: (state) => state.devices.slice(0, 5),
+		isLightBusy: (state) => (deviceId: string) => state.pendingRuntimeByDeviceId[deviceId]?.lightOn !== undefined,
+		isAcBusy: (state) => (deviceId: string) => state.pendingRuntimeByDeviceId[deviceId]?.acOn !== undefined,
+		isAcTargetBusy: (state) => (deviceId: string) => state.pendingRuntimeByDeviceId[deviceId]?.acTargetTempC !== undefined,
 	},
 	actions: {
+		setPendingRuntime(deviceId: string, patch: Partial<PendingRuntime>) {
+			const prev = this.pendingRuntimeByDeviceId[deviceId] ?? {}
+			this.pendingRuntimeByDeviceId[deviceId] = { ...prev, ...patch }
+
+			for (const [field, value] of Object.entries(patch) as Array<[keyof PendingRuntime, PendingRuntime[keyof PendingRuntime]]>) {
+				if (value === undefined) continue
+				const key = pendingKey(deviceId, field)
+				const existing = pendingTimers.get(key)
+				if (existing) window.clearTimeout(existing)
+				pendingTimers.set(
+					key,
+					window.setTimeout(() => {
+						const cur = this.pendingRuntimeByDeviceId[deviceId]
+						if (!cur) return
+						// Only clear if it still matches the pending value we set.
+						if (cur[field] === value) {
+							const next = { ...cur }
+							delete next[field]
+							if (!Object.keys(next).length) delete this.pendingRuntimeByDeviceId[deviceId]
+							else this.pendingRuntimeByDeviceId[deviceId] = next
+						}
+						pendingTimers.delete(key)
+					}, PENDING_RUNTIME_MS)
+				)
+			}
+		},
+		clearPendingRuntimeField(deviceId: string, field: keyof PendingRuntime) {
+			const cur = this.pendingRuntimeByDeviceId[deviceId]
+			if (!cur) return
+			const next = { ...cur }
+			delete next[field]
+			if (!Object.keys(next).length) delete this.pendingRuntimeByDeviceId[deviceId]
+			else this.pendingRuntimeByDeviceId[deviceId] = next
+
+			const key = pendingKey(deviceId, field)
+			const existing = pendingTimers.get(key)
+			if (existing) window.clearTimeout(existing)
+			pendingTimers.delete(key)
+		},
 		async bootstrap() {
 			if (this.loading) return
 			const auth = useAuthStore()
@@ -195,10 +251,41 @@ export const useDeviceStore = defineStore('device', {
 		applyRuntime(payload: DeviceRuntimeEvent) {
 			const device = this.devices.find((d) => d.id === payload.deviceId)
 			if (!device) return
-			if (typeof payload.lightOn === 'boolean') device.lightOn = payload.lightOn
-			if (typeof payload.acOn === 'boolean') device.acOn = payload.acOn
+			const pending = this.pendingRuntimeByDeviceId[payload.deviceId]
+
+			if (typeof payload.lightOn === 'boolean') {
+				if (pending?.lightOn !== undefined) {
+					if (payload.lightOn === pending.lightOn) {
+						device.lightOn = payload.lightOn
+						this.clearPendingRuntimeField(payload.deviceId, 'lightOn')
+					}
+					// Ignore mismatched updates while pending to avoid flicker.
+				} else {
+					device.lightOn = payload.lightOn
+				}
+			}
+
+			if (typeof payload.acOn === 'boolean') {
+				if (pending?.acOn !== undefined) {
+					if (payload.acOn === pending.acOn) {
+						device.acOn = payload.acOn
+						this.clearPendingRuntimeField(payload.deviceId, 'acOn')
+					}
+				} else {
+					device.acOn = payload.acOn
+				}
+			}
+
 			if (typeof payload.acTargetTempC === 'number' && Number.isFinite(payload.acTargetTempC)) {
-				device.acTargetTempC = payload.acTargetTempC
+				const next = payload.acTargetTempC
+				if (pending?.acTargetTempC !== undefined) {
+					if (next === pending.acTargetTempC) {
+						device.acTargetTempC = next
+						this.clearPendingRuntimeField(payload.deviceId, 'acTargetTempC')
+					}
+				} else {
+					device.acTargetTempC = next
+				}
 			}
 		},
 		applyCameraFrame(payload: CameraFrameEvent) {
@@ -276,16 +363,20 @@ export const useDeviceStore = defineStore('device', {
 			if (!auth.accessToken) return false
 			if (!input?.id) return false
 			this.error = null
+			const device = this.devices.find((d) => d.id === input.id)
+			const prev = device?.lightOn
+			if (device) device.lightOn = input.on
+			this.setPendingRuntime(input.id, { lightOn: input.on })
 			try {
 				await apiRequest(`/devices/${input.id}/control/light`, {
 					method: 'POST',
 					token: auth.accessToken,
 					body: { on: input.on },
 				})
-				const device = this.devices.find((d) => d.id === input.id)
-				if (device) device.lightOn = input.on
 				return true
 			} catch (err) {
+				this.clearPendingRuntimeField(input.id, 'lightOn')
+				if (device) device.lightOn = prev
 				this.error = err instanceof Error ? err.message : 'Failed to control light'
 				return false
 			}
@@ -295,6 +386,17 @@ export const useDeviceStore = defineStore('device', {
 			if (!auth.accessToken) return false
 			if (!input?.id) return false
 			this.error = null
+			const device = this.devices.find((d) => d.id === input.id)
+			const prevOn = device?.acOn
+			const prevTarget = device?.acTargetTempC
+			if (device) {
+				if (typeof input.on === 'boolean') device.acOn = input.on
+				if (typeof input.targetTempC === 'number') device.acTargetTempC = input.targetTempC
+			}
+			this.setPendingRuntime(input.id, {
+				...(typeof input.on === 'boolean' ? { acOn: input.on } : {}),
+				...(typeof input.targetTempC === 'number' ? { acTargetTempC: input.targetTempC } : {}),
+			})
 			try {
 				await apiRequest(`/devices/${input.id}/control/ac`, {
 					method: 'POST',
@@ -304,13 +406,14 @@ export const useDeviceStore = defineStore('device', {
 						...(typeof input.targetTempC === 'number' ? { targetTempC: input.targetTempC } : {}),
 					},
 				})
-				const device = this.devices.find((d) => d.id === input.id)
-				if (device) {
-					if (typeof input.on === 'boolean') device.acOn = input.on
-					if (typeof input.targetTempC === 'number') device.acTargetTempC = input.targetTempC
-				}
 				return true
 			} catch (err) {
+				if (typeof input.on === 'boolean') this.clearPendingRuntimeField(input.id, 'acOn')
+				if (typeof input.targetTempC === 'number') this.clearPendingRuntimeField(input.id, 'acTargetTempC')
+				if (device) {
+					if (typeof input.on === 'boolean') device.acOn = prevOn
+					if (typeof input.targetTempC === 'number') device.acTargetTempC = prevTarget
+				}
 				this.error = err instanceof Error ? err.message : 'Failed to control air conditioner'
 				return false
 			}
