@@ -3,11 +3,8 @@ import { defineStore } from 'pinia'
 import { io, type Socket } from 'socket.io-client'
 
 import { API_BASE_URL, apiRequest } from '../lib/api'
-import { formatRelativeTime, formatTimeLabel } from '../lib/time'
+import { formatRelativeTime } from '../lib/time'
 import { useAuthStore } from './authStore'
-
-const TELEMETRY_RANGE_MINUTES = 30
-const TELEMETRY_MAX_POINTS = 500
 
 export type DeviceStatus = 'ONLINE' | 'OFFLINE' | 'WARNING'
 
@@ -15,64 +12,59 @@ export type TelemetryPoint = {
 	ts: string
 	temperatureC: number
 	humidityPct: number
-	signalDbm: number
+	signalDbm?: number | null
 }
 
 export type Device = {
 	id: string
-	uid: string
+	deviceUid?: string
 	name: string
 	type: string
+	model?: string
 	status: DeviceStatus
 	lastSeenAt: string | null
 	latestTelemetry: TelemetryPoint | null
+	lightOn?: boolean
+	acOn?: boolean
+	acTargetTempC?: number
+	cameraFrameUrl?: string
 }
 
 type DeviceStatusEvent = {
 	deviceId: string
-	uid: string
 	status: DeviceStatus
 	lastSeenAt: string | null
 }
 
 type TelemetryNewEvent = {
 	deviceId: string
-	uid: string
 	ts: string
 	temperatureC: number
 	humidityPct: number
-	signalDbm: number
+	signalDbm?: number | null
 }
 
-type TelemetrySeries = {
-	labels: string[]
-	temperature: number[]
-	humidity: number[]
-	signalStrength: number[]
+type DeviceRuntimeEvent = {
+	deviceId: string
+	lightOn?: boolean
+	acOn?: boolean
+	acTargetTempC?: number
+}
+
+type CameraFrameEvent = {
+	deviceId: string
+	ts: string
+	dataUrl: string
 }
 
 let socket: Socket | null = null
 let relativeTimeTimer: number | null = null
 
-function pruneTelemetryWindow(window: TelemetryPoint[], nowIso: string) {
-	const now = new Date(nowIso)
-	if (Number.isNaN(now.getTime())) return
-	const cutoff = now.getTime() - TELEMETRY_RANGE_MINUTES * 60 * 1000
-
-	while (window.length && new Date(window[0]!.ts).getTime() < cutoff) {
-		window.shift()
-	}
-	while (window.length > TELEMETRY_MAX_POINTS) {
-		window.shift()
-	}
-}
-
 export const useDeviceStore = defineStore('device', {
 	state: () => {
 		return {
 			devices: [] as Device[],
-			selectedDeviceId: null as string | null,
-			telemetryWindow: [] as TelemetryPoint[],
+			telemetryWindowByDeviceId: {} as Record<string, TelemetryPoint[]>,
 			relativeTimeTick: 0,
 			loading: false,
 			error: null as string | null,
@@ -86,14 +78,6 @@ export const useDeviceStore = defineStore('device', {
 		offlineDevices: (state) => state.devices.filter((d) => d.status === 'OFFLINE').length,
 		alerts: (state) => state.devices.filter((d) => d.status === 'WARNING').length,
 		recentDevices: (state) => state.devices.slice(0, 5),
-		telemetry: (state): TelemetrySeries => {
-			return {
-				labels: state.telemetryWindow.map((p) => formatTimeLabel(p.ts)),
-				temperature: state.telemetryWindow.map((p) => p.temperatureC),
-				humidity: state.telemetryWindow.map((p) => p.humidityPct),
-				signalStrength: state.telemetryWindow.map((p) => p.signalDbm),
-			}
-		},
 	},
 	actions: {
 		async bootstrap() {
@@ -123,36 +107,19 @@ export const useDeviceStore = defineStore('device', {
 			try {
 				const data = await apiRequest<{ devices: Device[] }>('/devices', { token: auth.accessToken })
 				this.devices = data.devices
-				if (!this.selectedDeviceId && this.devices.length) {
-					this.selectedDeviceId = (this.devices.find((d) => d.latestTelemetry)?.id ?? this.devices[0]!.id)
+				for (const d of this.devices) {
+					if (!this.telemetryWindowByDeviceId[d.id]) {
+						this.telemetryWindowByDeviceId[d.id] = d.latestTelemetry ? [d.latestTelemetry] : []
+					}
 				}
-				await this.loadTelemetryWindow()
 			} catch (err) {
 				this.error = err instanceof Error ? err.message : 'Failed to load devices'
 			} finally {
 				this.loading = false
 			}
 		},
-		async loadTelemetryWindow() {
-			const auth = useAuthStore()
-			if (!auth.accessToken || !this.selectedDeviceId) return
-			try {
-				const to = new Date()
-				const from = new Date(to.getTime() - TELEMETRY_RANGE_MINUTES * 60 * 1000)
-				const params = new URLSearchParams({
-					limit: String(TELEMETRY_MAX_POINTS),
-					from: from.toISOString(),
-					to: to.toISOString(),
-				})
-				const data = await apiRequest<{ telemetry?: TelemetryPoint[] }>(
-					`/devices/${this.selectedDeviceId}/telemetry?${params.toString()}`,
-					{ token: auth.accessToken }
-				)
-				this.telemetryWindow = data.telemetry ?? []
-				pruneTelemetryWindow(this.telemetryWindow, to.toISOString())
-			} catch {
-				this.telemetryWindow = []
-			}
+		getTelemetryWindow(deviceId: string) {
+			return this.telemetryWindowByDeviceId[deviceId] ?? []
 		},
 		getLastUpdateLabel(device: Device) {
 			// Depend on a 60s tick so any UI showing relative time refreshes automatically.
@@ -188,6 +155,12 @@ export const useDeviceStore = defineStore('device', {
 			s.on('device:status', (payload: DeviceStatusEvent) => {
 				this.applyStatus(payload)
 			})
+			s.on('device:runtime', (payload: DeviceRuntimeEvent) => {
+				this.applyRuntime(payload)
+			})
+			s.on('camera:frame', (payload: CameraFrameEvent) => {
+				this.applyCameraFrame(payload)
+			})
 		},
 		disconnectSocket() {
 			if (!socket) return
@@ -198,23 +171,19 @@ export const useDeviceStore = defineStore('device', {
 		applyTelemetry(payload: TelemetryNewEvent) {
 			const device = this.devices.find((d) => d.id === payload.deviceId)
 			if (device) {
-				device.latestTelemetry = {
+				const point: TelemetryPoint = {
 					ts: payload.ts,
 					temperatureC: payload.temperatureC,
 					humidityPct: payload.humidityPct,
-					signalDbm: payload.signalDbm,
+					signalDbm: payload.signalDbm ?? null,
 				}
+				device.latestTelemetry = point
 				device.lastSeenAt = payload.ts
-			}
 
-			if (this.selectedDeviceId === payload.deviceId) {
-				this.telemetryWindow.push({
-					ts: payload.ts,
-					temperatureC: payload.temperatureC,
-					humidityPct: payload.humidityPct,
-					signalDbm: payload.signalDbm,
-				})
-				pruneTelemetryWindow(this.telemetryWindow, payload.ts)
+				const window = this.telemetryWindowByDeviceId[payload.deviceId] ?? []
+				window.push(point)
+				while (window.length > 30) window.shift()
+				this.telemetryWindowByDeviceId[payload.deviceId] = window
 			}
 		},
 		applyStatus(payload: DeviceStatusEvent) {
@@ -223,21 +192,36 @@ export const useDeviceStore = defineStore('device', {
 			device.status = payload.status
 			device.lastSeenAt = payload.lastSeenAt
 		},
-		async addDevice(input: { uid: string; name: string; type: string }) {
+		applyRuntime(payload: DeviceRuntimeEvent) {
+			const device = this.devices.find((d) => d.id === payload.deviceId)
+			if (!device) return
+			if (typeof payload.lightOn === 'boolean') device.lightOn = payload.lightOn
+			if (typeof payload.acOn === 'boolean') device.acOn = payload.acOn
+			if (typeof payload.acTargetTempC === 'number' && Number.isFinite(payload.acTargetTempC)) {
+				device.acTargetTempC = payload.acTargetTempC
+			}
+		},
+		applyCameraFrame(payload: CameraFrameEvent) {
+			const device = this.devices.find((d) => d.id === payload.deviceId)
+			if (!device) return
+			device.cameraFrameUrl = payload.dataUrl
+		},
+		async claimDevice(input: { activationCode: string }) {
 			const auth = useAuthStore()
-			if (!auth.accessToken) return false
+			if (!auth.accessToken) throw new Error('Not authenticated')
+			const activationCode = (input?.activationCode ?? '').trim()
+			if (!activationCode) throw new Error('Activation code is required')
 			try {
-				const data = await apiRequest<{ device: Device }>('/devices', {
+				const data = await apiRequest<{ device: Device; message?: string }>('/devices/claim', {
 					method: 'POST',
 					token: auth.accessToken,
-					body: { uid: input.uid, name: input.name, type: input.type },
+					body: { activationCode },
 				})
-				this.devices.unshift(data.device)
-				if (!this.selectedDeviceId) this.selectedDeviceId = data.device.id
+				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
+				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []
 				return true
 			} catch (err) {
-				this.error = err instanceof Error ? err.message : 'Failed to add device'
-				return false
+				throw err instanceof Error ? err : new Error('Failed to connect device')
 			}
 		},
 		async updateDeviceName(input: { id: string; name: string }) {
@@ -281,13 +265,53 @@ export const useDeviceStore = defineStore('device', {
 					token: auth.accessToken,
 				})
 				this.devices = this.devices.filter((d) => d.id !== input.id)
-				if (this.selectedDeviceId === input.id) {
-					this.selectedDeviceId = this.devices[0]?.id ?? null
-					await this.loadTelemetryWindow()
-				}
 				return true
 			} catch (err) {
 				this.error = err instanceof Error ? err.message : 'Failed to delete device'
+				return false
+			}
+		},
+		async setLight(input: { id: string; on: boolean }) {
+			const auth = useAuthStore()
+			if (!auth.accessToken) return false
+			if (!input?.id) return false
+			this.error = null
+			try {
+				await apiRequest(`/devices/${input.id}/control/light`, {
+					method: 'POST',
+					token: auth.accessToken,
+					body: { on: input.on },
+				})
+				const device = this.devices.find((d) => d.id === input.id)
+				if (device) device.lightOn = input.on
+				return true
+			} catch (err) {
+				this.error = err instanceof Error ? err.message : 'Failed to control light'
+				return false
+			}
+		},
+		async setAirConditioner(input: { id: string; on?: boolean; targetTempC?: number }) {
+			const auth = useAuthStore()
+			if (!auth.accessToken) return false
+			if (!input?.id) return false
+			this.error = null
+			try {
+				await apiRequest(`/devices/${input.id}/control/ac`, {
+					method: 'POST',
+					token: auth.accessToken,
+					body: {
+						...(typeof input.on === 'boolean' ? { on: input.on } : {}),
+						...(typeof input.targetTempC === 'number' ? { targetTempC: input.targetTempC } : {}),
+					},
+				})
+				const device = this.devices.find((d) => d.id === input.id)
+				if (device) {
+					if (typeof input.on === 'boolean') device.acOn = input.on
+					if (typeof input.targetTempC === 'number') device.acTargetTempC = input.targetTempC
+				}
+				return true
+			} catch (err) {
+				this.error = err instanceof Error ? err.message : 'Failed to control air conditioner'
 				return false
 			}
 		},

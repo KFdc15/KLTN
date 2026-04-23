@@ -24,8 +24,8 @@ model User {
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
   fullName     String?  @map("full_name")
-  passwordHash String
-  createdAt    DateTime @default(now())
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   devices Device[]
 
@@ -33,17 +33,28 @@ model User {
 }
 
 model Device {
-  id         String       @id @default(uuid()) @db.Uuid
-  uid        String       @unique
-  userId     String       @db.Uuid
-  name       String
-  type       String
-  status     DeviceStatus @default(OFFLINE)
-  lastSeenAt DateTime?
-  createdAt  DateTime     @default(now())
-  updatedAt  DateTime     @updatedAt
+  id             String       @id @default(uuid()) @db.Uuid
+  deviceUid      String       @unique @map("device_uid")
+  activationCode String       @unique @map("activation_code")
+  userId         String?      @db.Uuid @map("user_id")
 
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Optional metadata (demo-friendly, production-like)
+  type      String @default("sensor")
+  model     String @default("LPWAN-X1")
+  name      String @default("")
+
+  // Optional runtime state (control devices)
+  lightOn        Boolean? @map("light_on")
+  acOn           Boolean? @map("ac_on")
+  acTargetTempC  Int?     @map("ac_target_temp_c")
+  cameraFrameUrl String?  @map("camera_frame_url")
+
+  status     DeviceStatus @default(OFFLINE)
+  lastSeenAt DateTime?    @map("last_seen_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  updatedAt  DateTime     @updatedAt @map("updated_at")
+
+  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   telemetry Telemetry[]
   events    DeviceEvent[]
 
@@ -53,11 +64,11 @@ model Device {
 
 model Telemetry {
   id           String   @id @default(uuid()) @db.Uuid
-  deviceId     String   @db.Uuid
-  ts           DateTime
-  temperatureC Float
-  humidityPct  Float
-  signalDbm    Float
+  deviceId     String   @db.Uuid @map("device_id")
+  ts           DateTime @map("ts")
+  temperatureC Float    @map("temperature_c")
+  humidityPct  Float    @map("humidity_pct")
+  signalDbm    Float?   @map("signal_dbm")
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
@@ -67,8 +78,8 @@ model Telemetry {
 
 model DeviceEvent {
   id       String     @id @default(uuid()) @db.Uuid
-  deviceId String     @db.Uuid
-  ts       DateTime   @default(now())
+  deviceId String     @db.Uuid @map("device_id")
+  ts       DateTime   @default(now()) @map("ts")
   level    EventLevel @default(INFO)
   type     String
   message  String

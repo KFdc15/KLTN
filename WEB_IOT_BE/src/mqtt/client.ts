@@ -1,17 +1,18 @@
 import mqtt, { type MqttClient } from 'mqtt'
 
 import { env } from '../env'
-import { saveTelemetryByUid } from '../telemetry/service'
+import { saveTelemetryByDeviceUid } from '../telemetry/service'
 
 let client: MqttClient | null = null
 
 function parseUidFromTopic(topic: string): string | null {
-	// Expected: iot/<uid>/telemetry
+	// Expected: iot/devices/<device_uid>/telemetry
 	const parts = topic.split('/')
-	if (parts.length < 3) return null
+	if (parts.length < 4) return null
 	if (parts[0] !== 'iot') return null
-	if (parts[2] !== 'telemetry') return null
-	return parts[1] || null
+	if (parts[1] !== 'devices') return null
+	if (parts[3] !== 'telemetry') return null
+	return parts[2] || null
 }
 
 export function startMqtt() {
@@ -41,7 +42,7 @@ export function startMqtt() {
 			if (!uid) return
 			const text = payload.toString('utf8')
 			const body = JSON.parse(text)
-			await saveTelemetryByUid(uid, body)
+			await saveTelemetryByDeviceUid(uid, body)
 		} catch (err) {
 			console.error('MQTT message error:', err instanceof Error ? err.message : err)
 		}
@@ -52,6 +53,21 @@ export function startMqtt() {
 	})
 
 	return client
+}
+
+export async function publishDeviceCommand(uid: string, command: unknown) {
+	if (!client || !client.connected) throw new Error('MQTT unavailable')
+	const safeUid = (uid ?? '').trim()
+	if (!safeUid) throw new Error('Invalid uid')
+	const topic = `iot/devices/${safeUid}/cmd`
+	const payload = JSON.stringify(command ?? {})
+
+	await new Promise<void>((resolve, reject) => {
+		client?.publish(topic, payload, { qos: 0 }, (err) => {
+			if (err) reject(err)
+			else resolve()
+		})
+	})
 }
 
 export async function stopMqtt() {

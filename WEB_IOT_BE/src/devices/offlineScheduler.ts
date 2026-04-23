@@ -10,7 +10,7 @@ export function startOfflineScheduler() {
 	if (interval) return
 
 	const tick = async () => {
-		const offlineAfterMs = env.DEVICE_OFFLINE_MINUTES * 60 * 1000
+		const offlineAfterMs = Math.max(1, env.DEVICE_OFFLINE_AFTER_SECONDS) * 1000
 		const cutoff = new Date(Date.now() - offlineAfterMs)
 
 		const stale = await prisma.device.findMany({
@@ -18,7 +18,7 @@ export function startOfflineScheduler() {
 				status: { not: DeviceStatus.OFFLINE },
 				lastSeenAt: { lt: cutoff },
 			},
-			select: { id: true, uid: true, userId: true, lastSeenAt: true },
+			select: { id: true, userId: true, lastSeenAt: true },
 		})
 
 		if (!stale.length) return
@@ -30,9 +30,9 @@ export function startOfflineScheduler() {
 
 		const io = getIO()
 		for (const d of stale) {
+			if (!d.userId) continue
 			io?.to(userRoom(d.userId)).emit('device:status', {
 				deviceId: d.id,
-				uid: d.uid,
 				status: DeviceStatus.OFFLINE,
 				lastSeenAt: d.lastSeenAt,
 			})
@@ -43,7 +43,7 @@ export function startOfflineScheduler() {
 		void tick().catch((err) => {
 			console.error('[offlineScheduler] tick failed', err)
 		})
-	}, 60_000)
+	}, Math.max(5, env.DEVICE_OFFLINE_CHECK_INTERVAL_SECONDS) * 1000)
 
 	// Run once at startup (best-effort)
 	void tick().catch(() => {})

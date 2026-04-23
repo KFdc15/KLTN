@@ -13,6 +13,10 @@ const rows = computed<DeviceRow[]>(() => {
 		type: d.type,
 		status: d.status,
 		lastUpdate: store.getLastUpdateLabel(d),
+		spark: store
+			.getTelemetryWindow(d.id)
+			.map((p) => p.signalDbm)
+			.filter((v): v is number => typeof v === 'number' && Number.isFinite(v)),
 	}))
 })
 
@@ -29,11 +33,6 @@ async function onDeleteDevice(device: DeviceRow) {
 
 <template>
 	<div class="space-y-6">
-		<div class="rounded-2xl bg-white p-5 shadow-sm">
-			<h2 class="text-base font-semibold text-gray-900">My Devices</h2>
-			<p class="mt-1 text-sm text-gray-500">Manage and monitor your connected devices.</p>
-		</div>
-
 		<p v-if="store.error" class="text-sm text-red-700">{{ store.error }}</p>
 		<DeviceTable :devices="rows" @rename="onRenameDevice" @delete="onDeleteDevice" />
 	</div>

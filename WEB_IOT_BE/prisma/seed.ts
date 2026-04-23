@@ -21,113 +21,88 @@ async function main() {
 		},
 	})
 
-	const devices = [
+	// Factory devices exist independently from users.
+	// Users can claim them via activation_code.
+	const factoryDevices = [
 		{
-			uid: 'LPWAN_SENSOR_01',
-			name: 'LPWAN Sensor 01',
-			type: 'Temperature Sensor',
-			status: DeviceStatus.ONLINE,
-			lastSeenAt: new Date(Date.now() - 2 * 60 * 1000),
+			deviceUid: 'LPWAN_001',
+			activationCode: 'ABC123',
+			name: 'Temp Sensor 01',
+			type: 'Temperature',
+			model: 'LPWAN-T1',
 		},
 		{
-			uid: 'LPWAN_SENSOR_02',
-			name: 'LPWAN Sensor 02',
-			type: 'Temperature Sensor',
-			status: DeviceStatus.ONLINE,
-			lastSeenAt: new Date(Date.now() - 3 * 60 * 1000),
+			deviceUid: 'LPWAN_002',
+			activationCode: 'XYZ789',
+			name: 'Humidity Sensor 01',
+			type: 'Humidity',
+			model: 'LPWAN-H1',
 		},
 		{
-			uid: 'LPWAN_SENSOR_03',
-			name: 'LPWAN Sensor 03',
-			type: 'Temperature Sensor',
-			status: DeviceStatus.OFFLINE,
-			lastSeenAt: new Date(Date.now() - 70 * 60 * 1000),
+			deviceUid: 'LPWAN_003',
+			activationCode: 'CAM123',
+			name: 'Camera 01',
+			type: 'Camera',
+			model: 'CAM-X1',
 		},
 		{
-			uid: 'LPWAN_SENSOR_04',
-			name: 'LPWAN Sensor 04',
-			type: 'Temperature Sensor',
-			status: DeviceStatus.WARNING,
-			lastSeenAt: new Date(Date.now() - 10 * 60 * 1000),
+			deviceUid: 'LPWAN_004',
+			activationCode: 'LIT123',
+			name: 'Light 01',
+			type: 'Light',
+			model: 'LIGHT-X1',
+			lightOn: false,
 		},
 		{
-			uid: 'LPWAN_SENSOR_05',
-			name: 'LPWAN Sensor 05',
-			type: 'Temperature Sensor',
-			status: DeviceStatus.ONLINE,
-			lastSeenAt: new Date(Date.now() - 5 * 60 * 1000),
+			deviceUid: 'LPWAN_005',
+			activationCode: 'AC1234',
+			name: 'Air Conditioner 01',
+			type: 'Air Conditioner',
+			model: 'AC-X1',
+			acOn: false,
+			acTargetTempC: 24,
 		},
-		{
-			uid: 'FACTORY_NODE_A12',
-			name: 'Factory Node A12',
-			type: 'Multi-Sensor Node',
-			status: DeviceStatus.WARNING,
-			lastSeenAt: new Date(Date.now() - 8 * 60 * 1000),
-		},
-		{
-			uid: 'COLD_ROOM_BEACON',
-			name: 'Cold Room Beacon',
-			type: 'Humidity Sensor',
-			status: DeviceStatus.OFFLINE,
-			lastSeenAt: new Date(Date.now() - 74 * 60 * 1000),
-		},
-		{
-			uid: 'GATEWAY_NORTH',
-			name: 'Gateway North',
-			type: 'Edge Gateway',
-			status: DeviceStatus.ONLINE,
-			lastSeenAt: new Date(Date.now() - 60 * 1000),
-		},
-	]
+	] as const
 
-	for (const d of devices) {
+	for (const d of factoryDevices) {
 		await prisma.device.upsert({
-			where: { uid: d.uid },
+			where: { deviceUid: d.deviceUid },
 			update: {
+				activationCode: d.activationCode,
+				userId: null,
+				status: DeviceStatus.OFFLINE,
+				lastSeenAt: null,
 				name: d.name,
 				type: d.type,
-				status: d.status,
-				lastSeenAt: d.lastSeenAt,
-				userId: user.id,
+				model: d.model,
+				lightOn: 'lightOn' in d ? d.lightOn : null,
+				acOn: 'acOn' in d ? d.acOn : null,
+				acTargetTempC: 'acTargetTempC' in d ? d.acTargetTempC : null,
+				cameraFrameUrl: null,
 			},
 			create: {
-				...d,
-				userId: user.id,
+				deviceUid: d.deviceUid,
+				activationCode: d.activationCode,
+				userId: null,
+				status: DeviceStatus.OFFLINE,
+				lastSeenAt: null,
+				name: d.name,
+				type: d.type,
+				model: d.model,
+				lightOn: 'lightOn' in d ? d.lightOn : null,
+				acOn: 'acOn' in d ? d.acOn : null,
+				acTargetTempC: 'acTargetTempC' in d ? d.acTargetTempC : null,
+				cameraFrameUrl: null,
 			},
-		})
-	}
-
-	const firstDevice = await prisma.device.findFirst({
-		where: { uid: 'LPWAN_SENSOR_01' },
-	})
-
-	if (firstDevice) {
-		const now = Date.now()
-		const points = Array.from({ length: 12 }).map((_, i) => {
-			const minutesAgo = (11 - i) * 5
-			return {
-				deviceId: firstDevice.id,
-				ts: new Date(now - minutesAgo * 60 * 1000),
-				temperatureC: 26 + Math.random() * 4,
-				humidityPct: 60 + Math.random() * 12,
-				signalDbm: -65 - Math.random() * 15,
-			}
-		})
-
-		await prisma.telemetry.createMany({ data: points })
-		await prisma.deviceEvent.createMany({
-			data: [
-				{
-					deviceId: firstDevice.id,
-					type: 'telemetry_ingest',
-					message: 'Seed telemetry ingested',
-					level: 'INFO',
-				},
-			],
 		})
 	}
 
 	console.log('Seed complete')
+ 	console.log(`Admin user: ${user.email} / ${adminPassword}`)
+ 	console.log('Factory devices:')
+ 	for (const d of factoryDevices) {
+ 		console.log(`- ${d.deviceUid} (activation: ${d.activationCode})`)
+ 	}
 }
 
 main()

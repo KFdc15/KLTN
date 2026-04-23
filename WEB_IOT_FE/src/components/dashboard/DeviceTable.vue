@@ -9,6 +9,7 @@ export type DeviceRow = {
 	type: string
 	status: DeviceStatus
 	lastUpdate: string
+	spark: number[]
 }
 
 const props = defineProps<{
@@ -69,6 +70,31 @@ function statusLabel(status: DeviceStatus) {
 			return status
 	}
 }
+
+function sparkPolylinePoints(values: number[]) {
+	if (!values.length) return ''
+	const width = 120
+	const height = 28
+	const padding = 2
+
+	const min = Math.min(...values)
+	const max = Math.max(...values)
+	const range = max - min || 1
+	const stepX = values.length > 1 ? (width - padding * 2) / (values.length - 1) : 0
+
+	return values
+		.map((v, i) => {
+			const x = padding + i * stepX
+			const y = padding + (height - padding * 2) * (1 - (v - min) / range)
+			return `${x.toFixed(1)},${y.toFixed(1)}`
+		})
+		.join(' ')
+}
+
+function lastValue(values: number[]) {
+	if (!values.length) return null
+	return values[values.length - 1]
+}
 </script>
 
 <template>
@@ -104,6 +130,12 @@ function statusLabel(status: DeviceStatus) {
 							scope="col"
 							class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
 						>
+							Signal (30)
+						</th>
+						<th
+							scope="col"
+							class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						>
 							Last Update
 						</th>
 						<th
@@ -128,6 +160,32 @@ function statusLabel(status: DeviceStatus) {
 							>
 								{{ statusLabel(d.status) }}
 							</span>
+						</td>
+						<td class="whitespace-nowrap px-5 py-4">
+							<div class="flex items-center gap-3">
+								<div class="h-7 w-32 rounded-lg bg-gray-50 ring-1 ring-inset ring-gray-100">
+									<svg
+										viewBox="0 0 120 28"
+										class="h-7 w-32 text-gray-800"
+										aria-hidden="true"
+									>
+										<polyline
+											:points="sparkPolylinePoints(d.spark)"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.8"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+										/>
+									</svg>
+								</div>
+								<div class="text-sm text-gray-700">
+									<span v-if="lastValue(d.spark) !== null" class="font-semibold">
+										{{ Math.round(lastValue(d.spark) ?? 0) }} dBm
+									</span>
+									<span v-else class="text-gray-500">—</span>
+								</div>
+							</div>
 						</td>
 						<td class="whitespace-nowrap px-5 py-4 text-sm text-gray-700">{{ d.lastUpdate }}</td>
 						<td class="whitespace-nowrap px-5 py-4 text-right">

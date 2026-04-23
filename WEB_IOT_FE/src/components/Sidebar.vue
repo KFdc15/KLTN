@@ -7,10 +7,6 @@ import {
 	HomeIcon,
 	CpuChipIcon,
 	PlusCircleIcon,
-	ChartBarSquareIcon,
-	BoltIcon,
-	BellAlertIcon,
-	Cog6ToothIcon,
 	ArrowRightOnRectangleIcon,
 } from '@heroicons/vue/24/outline'
 
@@ -30,13 +26,6 @@ const primaryNav = [
 	{ label: 'Dashboard', to: '/app/dashboard', icon: HomeIcon },
 	{ label: 'My Devices', to: '/app/devices', icon: CpuChipIcon },
 	{ label: 'Add Device', to: '/app/add-device', icon: PlusCircleIcon },
-]
-
-const secondaryNav = [
-	{ label: 'Device Monitoring', disabled: true, icon: ChartBarSquareIcon },
-	{ label: 'Automation', disabled: true, icon: BoltIcon },
-	{ label: 'Notifications', disabled: true, icon: BellAlertIcon },
-	{ label: 'Settings', disabled: true, icon: Cog6ToothIcon },
 ]
 
 const logoutItem = { label: 'Logout', icon: ArrowRightOnRectangleIcon }
@@ -95,20 +84,6 @@ function logout() {
 						<component :is="item.icon" class="h-5 w-5 text-gray-300 group-hover:text-white" />
 						<span>{{ item.label }}</span>
 					</RouterLink>
-				</div>
-
-				<div class="space-y-1">
-					<div class="px-3 pb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">Management</div>
-					<button
-						v-for="item in secondaryNav"
-						:key="item.label"
-						type="button"
-						disabled
-						class="flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-gray-400 opacity-70"
-					>
-						<component :is="item.icon" class="h-5 w-5" />
-						<span>{{ item.label }}</span>
-					</button>
 				</div>
 			</nav>
 
