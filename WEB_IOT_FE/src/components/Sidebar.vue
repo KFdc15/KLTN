@@ -52,7 +52,7 @@ function logout() {
 
 	<aside
 		:class="[
-			'fixed left-0 top-0 z-50 h-full w-65 transform bg-gray-900 text-gray-200 transition duration-200 lg:translate-x-0',
+			'fixed left-0 top-0 z-50 h-full w-64 transform bg-gray-900 text-gray-200 transition duration-200 lg:translate-x-0',
 			props.open ? 'translate-x-0' : '-translate-x-full',
 		]"
 	>

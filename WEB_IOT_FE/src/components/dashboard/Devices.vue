@@ -6,11 +6,20 @@ import { useDeviceStore } from '../../store/deviceStore'
 
 const store = useDeviceStore()
 
+function connectionLabel(deviceUid: string | undefined, model: string | undefined) {
+	const uid = (deviceUid ?? '').toLowerCase()
+	const m = (model ?? '').toLowerCase()
+	if (m.includes('eth') || m.includes('ethernet') || uid.includes('eth')) return 'Wired'
+	if (m.includes('wifi') || uid.includes('wifi')) return 'Wi‑Fi'
+	return '—'
+}
+
 const rows = computed<DeviceRow[]>(() => {
 	return store.devices.map((d) => ({
 		id: d.id,
 		name: d.name,
 		type: d.type,
+		connection: connectionLabel(d.deviceUid, d.model),
 		status: d.status,
 		lastUpdate: store.getLastUpdateLabel(d),
 		spark: store

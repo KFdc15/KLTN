@@ -32,7 +32,7 @@ onBeforeUnmount(() => {
 	<div class="min-h-screen bg-gray-100">
 		<Sidebar :open="sidebarOpen" @close="closeSidebar" />
 
-		<div class="lg:pl-65">
+		<div class="lg:pl-64">
 			<HeaderBar @toggleSidebar="toggleSidebar" />
 
 			<main class="px-4 py-6 lg:px-8">

@@ -51,6 +51,18 @@ type DeviceRuntimeEvent = {
 	acTargetTempC?: number
 }
 
+export type DiscoverableDevice = {
+	id: string
+	deviceUid: string
+	name: string
+	type: string
+	model: string
+	status: string
+	lastSeenAt: string | null
+	createdAt: string
+	updatedAt: string
+}
+
 type PendingRuntime = {
 	lightOn?: boolean
 	acOn?: boolean
@@ -293,16 +305,68 @@ export const useDeviceStore = defineStore('device', {
 			if (!device) return
 			device.cameraFrameUrl = payload.dataUrl
 		},
-		async claimDevice(input: { activationCode: string }) {
+		async discoverDevices(input: { method: 'wired' | 'wifi' }) {
+			const auth = useAuthStore()
+			if (!auth.accessToken) throw new Error('Not authenticated')
+			const method = input?.method
+			if (method !== 'wired' && method !== 'wifi') throw new Error('Invalid discovery method')
+			const data = await apiRequest<{ devices: DiscoverableDevice[] }>('/devices/discover?method=' + method, {
+				method: 'GET',
+				token: auth.accessToken,
+			})
+			return data.devices ?? []
+		},
+		async claimDevice(input: { activationCode: string; name?: string }) {
 			const auth = useAuthStore()
 			if (!auth.accessToken) throw new Error('Not authenticated')
 			const activationCode = (input?.activationCode ?? '').trim()
 			if (!activationCode) throw new Error('Activation code is required')
+			const name = (input?.name ?? '').trim()
 			try {
 				const data = await apiRequest<{ device: Device; message?: string }>('/devices/claim', {
 					method: 'POST',
 					token: auth.accessToken,
-					body: { activationCode },
+					body: { activationCode, ...(name ? { name } : {}) },
+				})
+				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
+				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []
+				return true
+			} catch (err) {
+				throw err instanceof Error ? err : new Error('Failed to connect device')
+			}
+		},
+		async claimWifiDevice(input: { deviceUid: string; activationCode: string; name: string }) {
+			const auth = useAuthStore()
+			if (!auth.accessToken) throw new Error('Not authenticated')
+			const deviceUid = (input?.deviceUid ?? '').trim()
+			const activationCode = (input?.activationCode ?? '').trim()
+			const name = (input?.name ?? '').trim()
+			if (!deviceUid) throw new Error('Device is required')
+			if (!name) throw new Error('Device name is required')
+			if (!activationCode) throw new Error('Activation code is required')
+			try {
+				const data = await apiRequest<{ device: Device; message?: string }>('/devices/claim-wifi', {
+					method: 'POST',
+					token: auth.accessToken,
+					body: { deviceUid, activationCode, name },
+				})
+				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
+				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []
+				return true
+			} catch (err) {
+				throw err instanceof Error ? err : new Error('Failed to connect device')
+			}
+		},
+		async claimWiredDevice(input: { deviceUid: string }) {
+			const auth = useAuthStore()
+			if (!auth.accessToken) throw new Error('Not authenticated')
+			const deviceUid = (input?.deviceUid ?? '').trim()
+			if (!deviceUid) throw new Error('Device is required')
+			try {
+				const data = await apiRequest<{ device: Device; message?: string }>('/devices/claim-wired', {
+					method: 'POST',
+					token: auth.accessToken,
+					body: { deviceUid },
 				})
 				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
 				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []

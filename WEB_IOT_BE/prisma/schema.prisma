@@ -14,12 +14,6 @@ enum DeviceStatus {
   WARNING
 }
 
-enum EventLevel {
-  INFO
-  WARN
-  ERROR
-}
-
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
@@ -56,7 +50,6 @@ model Device {
 
   user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   telemetry Telemetry[]
-  events    DeviceEvent[]
 
   @@index([userId])
   @@map("devices")
@@ -74,18 +67,4 @@ model Telemetry {
 
   @@index([deviceId, ts])
   @@map("telemetry")
-}
-
-model DeviceEvent {
-  id       String     @id @default(uuid()) @db.Uuid
-  deviceId String     @db.Uuid @map("device_id")
-  ts       DateTime   @default(now()) @map("ts")
-  level    EventLevel @default(INFO)
-  type     String
-  message  String
-
-  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
-
-  @@index([deviceId, ts])
-  @@map("device_events")
 }

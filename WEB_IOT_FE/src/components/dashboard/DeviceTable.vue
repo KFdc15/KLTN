@@ -7,6 +7,7 @@ export type DeviceRow = {
 	id: string
 	name: string
 	type: string
+	connection: string
 	status: DeviceStatus
 	lastUpdate: string
 	spark: number[]
@@ -124,6 +125,12 @@ function lastValue(values: number[]) {
 							scope="col"
 							class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
 						>
+							Connection
+						</th>
+						<th
+							scope="col"
+							class="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-600"
+						>
 							Status
 						</th>
 						<th
@@ -150,9 +157,9 @@ function lastValue(values: number[]) {
 					<tr v-for="d in props.devices" :key="d.id" class="hover:bg-gray-50/60">
 						<td class="whitespace-nowrap px-5 py-4">
 							<div class="font-medium text-gray-900">{{ d.name }}</div>
-							<div class="text-sm text-gray-500">{{ d.id }}</div>
 						</td>
 						<td class="whitespace-nowrap px-5 py-4 text-sm text-gray-700">{{ d.type }}</td>
+						<td class="whitespace-nowrap px-5 py-4 text-sm text-gray-700">{{ d.connection }}</td>
 						<td class="whitespace-nowrap px-5 py-4">
 							<span
 								:class="statusBadgeClasses(d.status)"

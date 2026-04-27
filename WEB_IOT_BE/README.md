@@ -7,7 +7,7 @@
 
 ## Part 1 (done: Prisma schema + seed)
 - Prisma + PostgreSQL (Supabase)
-- Models: `users`, `devices`, `telemetry`, `device_events`
+- Models: `users`, `devices`, `telemetry`
 - Enums: `DeviceStatus = ONLINE|OFFLINE|WARNING`
 
 ### Seed demo account
