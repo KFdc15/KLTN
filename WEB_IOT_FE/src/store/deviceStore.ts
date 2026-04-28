@@ -15,6 +15,18 @@ export type TelemetryPoint = {
 	signalDbm?: number | null
 }
 
+export type RuntimePoint = {
+	ts: string
+	lightOn?: boolean
+	acOn?: boolean
+	acTargetTempC?: number
+}
+
+export type CameraFramePoint = {
+	ts: string
+	dataUrl: string
+}
+
 export type Device = {
 	id: string
 	deviceUid?: string
@@ -28,6 +40,17 @@ export type Device = {
 	acOn?: boolean
 	acTargetTempC?: number
 	cameraFrameUrl?: string
+}
+
+export type DeviceNotificationKind = 'device-added' | 'device-deleted' | 'device-warning'
+
+export type DeviceNotification = {
+	id: string
+	ts: string
+	kind: DeviceNotificationKind
+	title: string
+	message?: string
+	deviceId?: string
 }
 
 type DeviceStatusEvent = {
@@ -90,7 +113,10 @@ export const useDeviceStore = defineStore('device', {
 		return {
 			devices: [] as Device[],
 			telemetryWindowByDeviceId: {} as Record<string, TelemetryPoint[]>,
+			runtimeWindowByDeviceId: {} as Record<string, RuntimePoint[]>,
+			cameraFrameWindowByDeviceId: {} as Record<string, CameraFramePoint[]>,
 			pendingRuntimeByDeviceId: {} as Record<string, PendingRuntime>,
+			notifications: [] as DeviceNotification[],
 			relativeTimeTick: 0,
 			loading: false,
 			error: null as string | null,
@@ -109,6 +135,14 @@ export const useDeviceStore = defineStore('device', {
 		isAcTargetBusy: (state) => (deviceId: string) => state.pendingRuntimeByDeviceId[deviceId]?.acTargetTempC !== undefined,
 	},
 	actions: {
+		pushNotification(input: Omit<DeviceNotification, 'id' | 'ts'> & { ts?: string }) {
+			const id = (globalThis.crypto && 'randomUUID' in globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function')
+				? globalThis.crypto.randomUUID()
+				: `${Date.now()}-${Math.random().toString(16).slice(2)}`
+			const ts = input.ts ?? new Date().toISOString()
+			const next: DeviceNotification = { id, ts, ...input }
+			this.notifications = [next, ...this.notifications].slice(0, 20)
+		},
 		setPendingRuntime(deviceId: string, patch: Partial<PendingRuntime>) {
 			const prev = this.pendingRuntimeByDeviceId[deviceId] ?? {}
 			this.pendingRuntimeByDeviceId[deviceId] = { ...prev, ...patch }
@@ -179,6 +213,12 @@ export const useDeviceStore = defineStore('device', {
 					if (!this.telemetryWindowByDeviceId[d.id]) {
 						this.telemetryWindowByDeviceId[d.id] = d.latestTelemetry ? [d.latestTelemetry] : []
 					}
+					if (!this.runtimeWindowByDeviceId[d.id]) {
+						this.runtimeWindowByDeviceId[d.id] = []
+					}
+					if (!this.cameraFrameWindowByDeviceId[d.id]) {
+						this.cameraFrameWindowByDeviceId[d.id] = []
+					}
 				}
 			} catch (err) {
 				this.error = err instanceof Error ? err.message : 'Failed to load devices'
@@ -188,6 +228,12 @@ export const useDeviceStore = defineStore('device', {
 		},
 		getTelemetryWindow(deviceId: string) {
 			return this.telemetryWindowByDeviceId[deviceId] ?? []
+		},
+		getRuntimeWindow(deviceId: string) {
+			return this.runtimeWindowByDeviceId[deviceId] ?? []
+		},
+		getCameraFrameWindow(deviceId: string) {
+			return this.cameraFrameWindowByDeviceId[deviceId] ?? []
 		},
 		getLastUpdateLabel(device: Device) {
 			// Depend on a 60s tick so any UI showing relative time refreshes automatically.
@@ -257,23 +303,41 @@ export const useDeviceStore = defineStore('device', {
 		applyStatus(payload: DeviceStatusEvent) {
 			const device = this.devices.find((d) => d.id === payload.deviceId)
 			if (!device) return
+			const prevStatus = device.status
 			device.status = payload.status
 			device.lastSeenAt = payload.lastSeenAt
+			if (payload.status === 'WARNING' && prevStatus !== 'WARNING') {
+				const label = (device.name ?? '').trim() || device.type
+				this.pushNotification({
+					kind: 'device-warning',
+					deviceId: device.id,
+					title: 'Device warning',
+					message: `${label} entered WARNING state.`,
+					ts: payload.lastSeenAt ?? new Date().toISOString(),
+				})
+			}
 		},
 		applyRuntime(payload: DeviceRuntimeEvent) {
 			const device = this.devices.find((d) => d.id === payload.deviceId)
 			if (!device) return
 			const pending = this.pendingRuntimeByDeviceId[payload.deviceId]
+			const ts = new Date().toISOString()
+			let recorded = false
+			const runtimePoint: RuntimePoint = { ts }
 
 			if (typeof payload.lightOn === 'boolean') {
 				if (pending?.lightOn !== undefined) {
 					if (payload.lightOn === pending.lightOn) {
 						device.lightOn = payload.lightOn
 						this.clearPendingRuntimeField(payload.deviceId, 'lightOn')
+						runtimePoint.lightOn = payload.lightOn
+						recorded = true
 					}
 					// Ignore mismatched updates while pending to avoid flicker.
 				} else {
 					device.lightOn = payload.lightOn
+					runtimePoint.lightOn = payload.lightOn
+					recorded = true
 				}
 			}
 
@@ -282,9 +346,13 @@ export const useDeviceStore = defineStore('device', {
 					if (payload.acOn === pending.acOn) {
 						device.acOn = payload.acOn
 						this.clearPendingRuntimeField(payload.deviceId, 'acOn')
+						runtimePoint.acOn = payload.acOn
+						recorded = true
 					}
 				} else {
 					device.acOn = payload.acOn
+					runtimePoint.acOn = payload.acOn
+					recorded = true
 				}
 			}
 
@@ -294,16 +362,33 @@ export const useDeviceStore = defineStore('device', {
 					if (next === pending.acTargetTempC) {
 						device.acTargetTempC = next
 						this.clearPendingRuntimeField(payload.deviceId, 'acTargetTempC')
+						runtimePoint.acTargetTempC = next
+						recorded = true
 					}
 				} else {
 					device.acTargetTempC = next
+					runtimePoint.acTargetTempC = next
+					recorded = true
 				}
+			}
+
+			if (recorded) {
+				const window = this.runtimeWindowByDeviceId[payload.deviceId] ?? []
+				window.push(runtimePoint)
+				while (window.length > 30) window.shift()
+				this.runtimeWindowByDeviceId[payload.deviceId] = window
 			}
 		},
 		applyCameraFrame(payload: CameraFrameEvent) {
 			const device = this.devices.find((d) => d.id === payload.deviceId)
 			if (!device) return
 			device.cameraFrameUrl = payload.dataUrl
+			device.lastSeenAt = payload.ts
+
+			const window = this.cameraFrameWindowByDeviceId[payload.deviceId] ?? []
+			window.push({ ts: payload.ts, dataUrl: payload.dataUrl })
+			while (window.length > 30) window.shift()
+			this.cameraFrameWindowByDeviceId[payload.deviceId] = window
 		},
 		async discoverDevices(input: { method: 'wired' | 'wifi' }) {
 			const auth = useAuthStore()
@@ -330,6 +415,13 @@ export const useDeviceStore = defineStore('device', {
 				})
 				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
 				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []
+				const label = (data.device.name ?? '').trim() || data.device.type
+				this.pushNotification({
+					kind: 'device-added',
+					deviceId: data.device.id,
+					title: 'Device added',
+					message: label,
+				})
 				return true
 			} catch (err) {
 				throw err instanceof Error ? err : new Error('Failed to connect device')
@@ -352,6 +444,13 @@ export const useDeviceStore = defineStore('device', {
 				})
 				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
 				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []
+				const label = (data.device.name ?? '').trim() || data.device.type
+				this.pushNotification({
+					kind: 'device-added',
+					deviceId: data.device.id,
+					title: 'Device added',
+					message: label,
+				})
 				return true
 			} catch (err) {
 				throw err instanceof Error ? err : new Error('Failed to connect device')
@@ -370,6 +469,13 @@ export const useDeviceStore = defineStore('device', {
 				})
 				this.devices = [data.device, ...this.devices.filter((d) => d.id !== data.device.id)]
 				this.telemetryWindowByDeviceId[data.device.id] = data.device.latestTelemetry ? [data.device.latestTelemetry] : []
+				const label = (data.device.name ?? '').trim() || data.device.type
+				this.pushNotification({
+					kind: 'device-added',
+					deviceId: data.device.id,
+					title: 'Device added',
+					message: label,
+				})
 				return true
 			} catch (err) {
 				throw err instanceof Error ? err : new Error('Failed to connect device')
@@ -410,12 +516,20 @@ export const useDeviceStore = defineStore('device', {
 			if (!auth.accessToken) return false
 			if (!input?.id) return false
 			this.error = null
+			const existing = this.devices.find((d) => d.id === input.id)
 			try {
 				await apiRequest(`/devices/${input.id}`, {
 					method: 'DELETE',
 					token: auth.accessToken,
 				})
 				this.devices = this.devices.filter((d) => d.id !== input.id)
+				const label = (existing?.name ?? '').trim() || existing?.type || 'Device'
+				this.pushNotification({
+					kind: 'device-deleted',
+					deviceId: input.id,
+					title: 'Device deleted',
+					message: label,
+				})
 				return true
 			} catch (err) {
 				this.error = err instanceof Error ? err.message : 'Failed to delete device'

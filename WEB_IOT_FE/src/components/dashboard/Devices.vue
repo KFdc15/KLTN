@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 
 import DeviceTable, { type DeviceRow } from './DeviceTable.vue'
 import { useDeviceStore } from '../../store/deviceStore'
 
 const store = useDeviceStore()
+const router = useRouter()
 
 function connectionLabel(deviceUid: string | undefined, model: string | undefined) {
 	const uid = (deviceUid ?? '').toLowerCase()
@@ -38,11 +40,15 @@ async function onDeleteDevice(device: DeviceRow) {
 	if (!ok) return
 	await store.deleteDevice({ id: device.id })
 }
+
+function onViewDevice(device: DeviceRow) {
+	router.push(`/app/devices/${device.id}`)
+}
 </script>
 
 <template>
 	<div class="space-y-6">
 		<p v-if="store.error" class="text-sm text-red-700">{{ store.error }}</p>
-		<DeviceTable :devices="rows" @rename="onRenameDevice" @delete="onDeleteDevice" />
+		<DeviceTable :devices="rows" @view="onViewDevice" @rename="onRenameDevice" @delete="onDeleteDevice" />
 	</div>
 </template>

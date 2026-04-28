@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 export type DeviceStatus = 'ONLINE' | 'OFFLINE' | 'WARNING'
 
@@ -18,12 +18,20 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
+	(e: 'view', device: DeviceRow): void
 	(e: 'rename', input: { id: string; name: string }): void
 	(e: 'delete', device: DeviceRow): void
 }>()
 
 const editingId = ref<string | null>(null)
 const draftName = ref('')
+const nameQuery = ref('')
+
+const filteredDevices = computed(() => {
+	const q = nameQuery.value.trim().toLowerCase()
+	if (!q) return props.devices
+	return props.devices.filter((d) => (d.name ?? '').toLowerCase().includes(q))
+})
 
 function startEdit(device: DeviceRow) {
 	editingId.value = device.id
@@ -44,6 +52,10 @@ function saveEdit(device: DeviceRow) {
 
 function removeDevice(device: DeviceRow) {
 	emit('delete', device)
+}
+
+function viewMore(device: DeviceRow) {
+	emit('view', device)
 }
 
 function statusBadgeClasses(status: DeviceStatus) {
@@ -101,8 +113,22 @@ function lastValue(values: number[]) {
 <template>
 	<div class="overflow-hidden rounded-2xl bg-white shadow-sm">
 		<div class="border-b border-gray-100 px-5 py-4">
-			<h3 class="text-base font-semibold text-gray-900">Recent Device Activity</h3>
-			<p class="mt-1 text-sm text-gray-500">Latest status and updates across devices.</p>
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<div>
+					<h3 class="text-base font-semibold text-gray-900">Recent Device Activity</h3>
+					<p class="mt-1 text-sm text-gray-500">Latest status and updates across devices.</p>
+				</div>
+				<div class="sm:w-72">
+					<label class="sr-only" for="device-name-search">Search devices by name</label>
+					<input
+						id="device-name-search"
+						v-model="nameQuery"
+						type="search"
+						placeholder="Tìm theo tên thiết bị…"
+						class="w-full rounded-2xl border border-gray-200 bg-white px-4 py-2 text-sm text-gray-900 shadow-sm outline-none transition focus:border-gray-300"
+					/>
+				</div>
+			</div>
 		</div>
 
 		<div class="overflow-x-auto">
@@ -154,7 +180,7 @@ function lastValue(values: number[]) {
 					</tr>
 				</thead>
 				<tbody class="divide-y divide-gray-100 bg-white">
-					<tr v-for="d in props.devices" :key="d.id" class="hover:bg-gray-50/60">
+					<tr v-for="d in filteredDevices" :key="d.id" class="hover:bg-gray-50/60">
 						<td class="whitespace-nowrap px-5 py-4">
 							<div class="font-medium text-gray-900">{{ d.name }}</div>
 						</td>
@@ -218,6 +244,13 @@ function lastValue(values: number[]) {
 								</button>
 							</div>
 							<div v-else class="flex items-center justify-end gap-2">
+									<button
+										type="button"
+										class="inline-flex items-center rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50"
+										@click="viewMore(d)"
+									>
+										See more
+									</button>
 								<button
 									type="button"
 									class="inline-flex items-center rounded-xl bg-gray-900 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-gray-800"

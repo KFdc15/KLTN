@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
-import { Bars3Icon, BellIcon, ChevronDownIcon, MagnifyingGlassIcon } from '@heroicons/vue/24/outline'
+import { Bars3Icon, BellIcon, ChevronDownIcon } from '@heroicons/vue/24/outline'
 
 import { useAuthStore } from '../../store/authStore'
+import { useDeviceStore } from '../../store/deviceStore'
+import { formatRelativeTime } from '../../lib/time'
 
 const emit = defineEmits<{
 	(e: 'toggleSidebar'): void
@@ -14,8 +16,10 @@ const route = useRoute()
 const router = useRouter()
 
 const auth = useAuthStore()
+const devices = useDeviceStore()
 
 const isUserMenuOpen = ref(false)
+const isNotificationsOpen = ref(false)
 
 const resolvedTitle = computed(() => {
 	const metaTitle = route.meta?.title as string | undefined
@@ -39,16 +43,48 @@ const userLabel = computed(() => {
 })
 
 function toggleUserMenu() {
+	isNotificationsOpen.value = false
 	isUserMenuOpen.value = !isUserMenuOpen.value
 }
 
+function toggleNotifications() {
+	isUserMenuOpen.value = false
+	isNotificationsOpen.value = !isNotificationsOpen.value
+}
+
+const notifications = computed(() => {
+	void devices.relativeTimeTick
+	return devices.notifications.map((n) => ({
+		...n,
+		relative: formatRelativeTime(n.ts),
+	}))
+})
+
+function onGlobalPointerDown(e: PointerEvent) {
+	const target = e.target
+	if (!(target instanceof HTMLElement)) return
+	if (target.closest('[data-user-menu]') || target.closest('[data-notifications]')) return
+	isUserMenuOpen.value = false
+	isNotificationsOpen.value = false
+}
+
+onMounted(() => {
+	window.addEventListener('pointerdown', onGlobalPointerDown)
+})
+
+onBeforeUnmount(() => {
+	window.removeEventListener('pointerdown', onGlobalPointerDown)
+})
+
 function goTo(path: string) {
 	isUserMenuOpen.value = false
+	isNotificationsOpen.value = false
 	router.push(path)
 }
 
 function logout() {
 	isUserMenuOpen.value = false
+	isNotificationsOpen.value = false
 	auth.logout()
 	router.push('/login')
 }
@@ -70,28 +106,46 @@ function logout() {
 			</div>
 
 			<div class="flex flex-1 items-center justify-end gap-3">
-				<div class="hidden w-full max-w-md lg:block">
-					<div class="relative">
-						<MagnifyingGlassIcon
-							class="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400"
-						/>
-						<input
-							type="search"
-							placeholder="Search devices..."
-							class="w-full rounded-2xl border border-gray-200 bg-white py-2 pl-10 pr-4 text-sm text-gray-900 shadow-sm outline-none transition focus:border-gray-300"
-						/>
+				<div class="relative" data-notifications>
+					<button
+						type="button"
+						class="inline-flex items-center rounded-xl p-2 text-gray-700 transition hover:bg-white hover:shadow-sm"
+						aria-label="Notifications"
+						@pointerdown.stop
+						@click.stop="toggleNotifications"
+					>
+						<BellIcon class="h-6 w-6" />
+					</button>
+
+					<div
+						v-if="isNotificationsOpen"
+						class="absolute right-0 z-50 mt-2 w-80 overflow-hidden rounded-2xl bg-white shadow-lg ring-1 ring-black/5"
+						@pointerdown.stop
+						@click.stop
+					>
+						<div class="px-4 py-3">
+							<p class="text-sm font-semibold text-gray-900">Device notifications</p>
+						</div>
+						<div class="max-h-80 overflow-auto border-t border-gray-100">
+							<div v-if="notifications.length === 0" class="px-4 py-4 text-sm text-gray-600">
+								No notifications yet.
+							</div>
+							<div v-else>
+								<div
+									v-for="n in notifications.slice(0, 12)"
+									:key="n.id"
+									class="px-4 py-3 transition hover:bg-gray-50"
+								>
+									<p class="text-sm font-semibold text-gray-900">{{ n.title }}</p>
+									<p v-if="n.message" class="mt-0.5 text-sm text-gray-600">{{ n.message }}</p>
+									<p class="mt-1 text-xs text-gray-500">{{ n.relative }}</p>
+								</div>
+							</div>
+						</div>
 					</div>
 				</div>
 
-				<button
-					type="button"
-					class="inline-flex items-center rounded-xl p-2 text-gray-700 transition hover:bg-white hover:shadow-sm"
-					aria-label="Notifications"
-				>
-					<BellIcon class="h-6 w-6" />
-				</button>
-
-				<div class="relative">
+				<div class="relative" data-user-menu>
 					<button
 						type="button"
 						class="inline-flex items-center gap-2 rounded-2xl bg-white px-2 py-1.5 shadow-sm ring-1 ring-gray-200 transition hover:shadow"

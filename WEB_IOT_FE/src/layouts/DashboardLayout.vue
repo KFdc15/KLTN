@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 
-import Sidebar from '../components/Sidebar.vue'
+import Sidebar from '../components/dashboard/Sidebar.vue'
 import HeaderBar from '../components/dashboard/HeaderBar.vue'
 
 import { useDeviceStore } from '../store/deviceStore'
