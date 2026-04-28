@@ -5,8 +5,8 @@ import { getIO, userRoom } from '../realtime/io'
 
 export type TelemetryInput = {
 	ts?: Date
-	temperatureC: number
-	humidityPct: number
+	temperatureC?: number
+	humidityPct?: number
 	signalDbm?: number
 }
 
@@ -29,14 +29,16 @@ function parseTelemetryInput(raw: unknown): TelemetryInput {
 	const signalDbm =
 		isFiniteNumber(body.signalDbm) ? body.signalDbm : isFiniteNumber(body.signal) ? body.signal : undefined
 
-	if (!isFiniteNumber(temperatureC)) throw new Error('Invalid temperatureC')
-	if (!isFiniteNumber(humidityPct)) throw new Error('Invalid humidityPct')
+	// Allow missing temperature/humidity so control/camera devices can reuse
+	// the same ingest pipeline without sending meaningless values.
+	if (temperatureC !== undefined && !isFiniteNumber(temperatureC)) throw new Error('Invalid temperatureC')
+	if (humidityPct !== undefined && !isFiniteNumber(humidityPct)) throw new Error('Invalid humidityPct')
 	if (ts && Number.isNaN(ts.getTime())) throw new Error('Invalid ts')
 
 	return {
 		ts,
-		temperatureC,
-		humidityPct,
+		...(temperatureC !== undefined ? { temperatureC } : {}),
+		...(humidityPct !== undefined ? { humidityPct } : {}),
 		...(signalDbm !== undefined ? { signalDbm } : {}),
 	}
 }
@@ -48,7 +50,13 @@ function computeOnlineOrWarning(t: { temperatureC: number; humidityPct: number }
 export async function saveTelemetryByDeviceId(deviceId: string, rawTelemetry: unknown) {
 	const telemetry = parseTelemetryInput(rawTelemetry)
 	const ts = telemetry.ts ?? new Date()
-	const status = computeOnlineOrWarning(telemetry)
+	const temperatureC = telemetry.temperatureC
+	const humidityPct = telemetry.humidityPct
+	const hasEnvTelemetry = isFiniteNumber(temperatureC) && isFiniteNumber(humidityPct)
+	let status: DeviceStatus = DeviceStatus.ONLINE
+	if (hasEnvTelemetry) {
+		status = computeOnlineOrWarning({ temperatureC, humidityPct })
+	}
 	const body = (rawTelemetry ?? {}) as Record<string, unknown>
 	const lightOn = typeof body.lightOn === 'boolean' ? body.lightOn : undefined
 	const acOn = typeof body.acOn === 'boolean' ? body.acOn : undefined
@@ -69,22 +77,31 @@ export async function saveTelemetryByDeviceId(deviceId: string, rawTelemetry: un
 			})
 			if (!device) return null
 
-			const created = await tx.telemetry.create({
-				data: {
-					deviceId,
-					ts,
-					temperatureC: telemetry.temperatureC,
-					humidityPct: telemetry.humidityPct,
-					signalDbm: telemetry.signalDbm,
-				},
-				select: {
-					deviceId: true,
-					ts: true,
-					temperatureC: true,
-					humidityPct: true,
-					signalDbm: true,
-				},
-			})
+			let created: {
+				deviceId: string
+				ts: Date
+				temperatureC: number
+				humidityPct: number
+				signalDbm: number | null
+			} | null = null
+			if (hasEnvTelemetry) {
+				created = await tx.telemetry.create({
+					data: {
+						deviceId,
+						ts,
+						temperatureC: temperatureC,
+						humidityPct: humidityPct,
+						signalDbm: telemetry.signalDbm,
+					},
+					select: {
+						deviceId: true,
+						ts: true,
+						temperatureC: true,
+						humidityPct: true,
+						signalDbm: true,
+					},
+				})
+			}
 
 			await tx.device.update({
 				where: { id: deviceId },
@@ -108,22 +125,25 @@ export async function saveTelemetryByDeviceId(deviceId: string, rawTelemetry: un
 		if (result.device.userId) {
 			const io = getIO()
 			const room = userRoom(result.device.userId)
-			io?.to(room).emit('telemetry:new', {
-				deviceId: result.telemetry.deviceId,
-				ts: result.telemetry.ts,
-				temperatureC: result.telemetry.temperatureC,
-				humidityPct: result.telemetry.humidityPct,
-				signalDbm: result.telemetry.signalDbm,
-			})
+			const safeDeviceId = result.device.id
+			if (result.telemetry) {
+				io?.to(room).emit('telemetry:new', {
+					deviceId: result.telemetry.deviceId,
+					ts: result.telemetry.ts,
+					temperatureC: result.telemetry.temperatureC,
+					humidityPct: result.telemetry.humidityPct,
+					signalDbm: result.telemetry.signalDbm,
+				})
+			}
 			io?.to(room).emit('device:status', {
-				deviceId: result.telemetry.deviceId,
+				deviceId: safeDeviceId,
 				status: result.status,
 				lastSeenAt: result.lastSeenAt,
 			})
 
 			if (lightOn !== undefined || acOn !== undefined || acTargetTempC !== undefined) {
 				io?.to(room).emit('device:runtime', {
-					deviceId: result.telemetry.deviceId,
+					deviceId: safeDeviceId,
 					...(lightOn !== undefined ? { lightOn } : {}),
 					...(acOn !== undefined ? { acOn } : {}),
 					...(acTargetTempC !== undefined ? { acTargetTempC } : {}),
@@ -132,8 +152,8 @@ export async function saveTelemetryByDeviceId(deviceId: string, rawTelemetry: un
 
 			if (cameraFrameUrl !== undefined) {
 				io?.to(room).emit('camera:frame', {
-					deviceId: result.telemetry.deviceId,
-					ts: result.telemetry.ts,
+					deviceId: safeDeviceId,
+					ts,
 					dataUrl: cameraFrameUrl,
 				})
 			}
