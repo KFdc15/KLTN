@@ -1,505 +1,598 @@
-import { Router } from 'express'
-import { DeviceStatus, Prisma } from '@prisma/client'
+import { Router } from "express";
+import { ConnectionType, DeviceJoinStatus, DeviceStatus } from "@prisma/client";
 
-import { prisma } from '../db/prisma'
-import { requireAuth } from '../middleware/requireAuth'
-import { publishDeviceCommand } from '../mqtt/client'
-import { getIO, userRoom } from '../realtime/io'
+import { prisma } from "../db/prisma";
+import { requireAuth } from "../middleware/requireAuth";
+import { publishDeviceCommand } from "../mqtt/client";
+import { getIO, userRoom } from "../realtime/io";
 
-type DiscoverMethod = 'wired' | 'wifi'
-
-function discoverMethodFromQuery(value: unknown): DiscoverMethod | null {
-	if (value === 'wired' || value === 'wifi') return value
-	return null
-}
-
-function partitionIsWired(deviceUid: string, model: string | null | undefined) {
-	const m = (model ?? '').toLowerCase()
-	const uid = (deviceUid ?? '').toLowerCase()
-	if (m.includes('eth') || m.includes('ethernet') || uid.includes('eth')) return true
-	if (m.includes('wifi') || uid.includes('wifi')) return false
-	// Deterministic fallback partition so demo always shows both groups.
-	let hash = 0
-	for (let i = 0; i < uid.length; i++) hash = (hash * 31 + uid.charCodeAt(i)) >>> 0
-	return hash % 2 === 0
-}
+type DiscoverMethod = "wired" | "wifi" | "lpwan";
 
 type LatestTelemetry = {
-	ts: Date
-	temperatureC: number
-	humidityPct: number
-	signalDbm: number | null
+  ts: Date;
+  temperatureC: number;
+  humidityPct: number;
+  signalDbm: number | null;
+  rssi?: number | null;
+  snr?: number | null;
+  spreadingFactor?: number | null;
+  batteryPct?: number | null;
+  uplinkCounter?: number | null;
+};
+
+function discoverMethodFromQuery(value: unknown): DiscoverMethod | null {
+  if (value === "wired" || value === "wifi" || value === "lpwan") {
+    return value;
+  }
+
+  return null;
 }
 
 function mapTelemetry(t: LatestTelemetry | null) {
-	if (!t) return null
-	return {
-		ts: t.ts,
-		temperatureC: t.temperatureC,
-		humidityPct: t.humidityPct,
-		signalDbm: t.signalDbm,
-	}
+  if (!t) return null;
+
+  return {
+    ts: t.ts,
+    temperatureC: t.temperatureC,
+    humidityPct: t.humidityPct,
+    signalDbm: t.signalDbm,
+    rssi: t.rssi ?? null,
+    snr: t.snr ?? null,
+    spreadingFactor: t.spreadingFactor ?? null,
+    batteryPct: t.batteryPct ?? null,
+    uplinkCounter: t.uplinkCounter ?? null,
+  };
 }
 
-export const devicesRouter = Router()
+function getConnectionTypeFromMethod(method: DiscoverMethod) {
+  if (method === "wired") return ConnectionType.WIRED;
+  if (method === "wifi") return ConnectionType.WIFI;
+  return ConnectionType.LPWAN;
+}
 
-devicesRouter.use(requireAuth)
+const baseDeviceSelect = {
+  id: true,
+  deviceUid: true,
+  devEui: true,
+  name: true,
+  type: true,
+  model: true,
 
-devicesRouter.get('/', async (req, res) => {
-	const userId = req.user!.id
-	const devices = await prisma.device.findMany({
-		where: { userId },
-		orderBy: { createdAt: 'desc' },
-		select: {
-			id: true,
-			deviceUid: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+  connectionType: true,
+  networkType: true,
+  joinStatus: true,
+  gatewayId: true,
+  lastJoinAt: true,
+  lastRssi: true,
+  lastSnr: true,
+  lastSpreadingFactor: true,
+  lastBatteryPct: true,
+  lastUplinkCounter: true,
 
-	// Avoid potential N+1 queries from nested `telemetry.take(1)` by fetching
-	// latest telemetry for all devices in a single query.
-	const deviceIds = devices.map((d) => d.id)
-	const latestTelemetryRows = deviceIds.length
-		? await prisma.telemetry.findMany({
-			where: { deviceId: { in: deviceIds } },
-			orderBy: [{ deviceId: 'asc' }, { ts: 'desc' }],
-			distinct: ['deviceId'],
-			select: {
-				deviceId: true,
-				ts: true,
-				temperatureC: true,
-				humidityPct: true,
-				signalDbm: true,
-			},
-		})
-		: []
+  lightOn: true,
+  acOn: true,
+  acTargetTempC: true,
+  cameraFrameUrl: true,
 
-	const latestByDeviceId = new Map<string, LatestTelemetry>()
-	for (const row of latestTelemetryRows) {
-		latestByDeviceId.set(row.deviceId, {
-			ts: row.ts,
-			temperatureC: row.temperatureC,
-			humidityPct: row.humidityPct,
-			signalDbm: row.signalDbm ?? null,
-		})
-	}
+  status: true,
+  lastSeenAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
 
-	return res.json({
-		devices: devices.map((d) => {
-			const latestTelemetry = latestByDeviceId.get(d.id) ?? null
+const telemetrySelect = {
+  ts: true,
+  temperatureC: true,
+  humidityPct: true,
+  signalDbm: true,
+  rssi: true,
+  snr: true,
+  spreadingFactor: true,
+  batteryPct: true,
+  uplinkCounter: true,
+} as const;
 
-			return {
-				id: d.id,
-				deviceUid: d.deviceUid,
-				name: d.name,
-				type: d.type,
-				model: d.model,
-				lightOn: d.lightOn,
-				acOn: d.acOn,
-				acTargetTempC: d.acTargetTempC,
-				cameraFrameUrl: d.cameraFrameUrl,
-				status: d.status,
-				lastSeenAt: d.lastSeenAt ?? latestTelemetry?.ts ?? null,
-				createdAt: d.createdAt,
-				updatedAt: d.updatedAt,
-				latestTelemetry: mapTelemetry(latestTelemetry),
-			}
-		}),
-	})
-})
+export const devicesRouter = Router();
 
-devicesRouter.get('/discover', async (req, res) => {
-	const method = discoverMethodFromQuery(req.query.method)
-	if (!method) return res.status(400).json({ error: 'Invalid method (use wired|wifi)' })
+devicesRouter.use(requireAuth);
 
-	// Demo-friendly discovery: show unclaimed devices, partitioned into wired/wifi buckets.
-	const candidates = await prisma.device.findMany({
-		where: { userId: null },
-		orderBy: { updatedAt: 'desc' },
-		select: {
-			id: true,
-			deviceUid: true,
-			type: true,
-			model: true,
-			name: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+devicesRouter.get("/", async (req, res) => {
+  const userId = req.user!.id;
 
-	const devices = candidates.filter((d) => {
-		const isWired = partitionIsWired(d.deviceUid, d.model)
-		return method === 'wired' ? isWired : !isWired
-	})
+  const devices = await prisma.device.findMany({
+    where: { userId },
+    orderBy: { createdAt: "desc" },
+    select: baseDeviceSelect,
+  });
 
-	return res.json({ devices })
-})
+  const deviceIds = devices.map((d) => d.id);
 
-devicesRouter.post('/claim', async (req, res) => {
-	const userId = req.user!.id
-	const { activationCode, name } = (req.body ?? {}) as { activationCode?: unknown; name?: unknown }
+  const latestTelemetryRows = deviceIds.length
+    ? await prisma.telemetry.findMany({
+        where: { deviceId: { in: deviceIds } },
+        orderBy: [{ deviceId: "asc" }, { ts: "desc" }],
+        distinct: ["deviceId"],
+        select: {
+          deviceId: true,
+          ...telemetrySelect,
+        },
+      })
+    : [];
 
-	if (typeof activationCode !== 'string' || !activationCode.trim()) {
-		return res.status(400).json({ error: 'Missing activationCode' })
-	}
+  const latestByDeviceId = new Map<string, LatestTelemetry>();
 
-	const nextName = typeof name === 'string' ? name.trim() : ''
+  for (const row of latestTelemetryRows) {
+    latestByDeviceId.set(row.deviceId, {
+      ts: row.ts,
+      temperatureC: row.temperatureC,
+      humidityPct: row.humidityPct,
+      signalDbm: row.signalDbm ?? null,
+      rssi: row.rssi ?? null,
+      snr: row.snr ?? null,
+      spreadingFactor: row.spreadingFactor ?? null,
+      batteryPct: row.batteryPct ?? null,
+      uplinkCounter: row.uplinkCounter ?? null,
+    });
+  }
 
-	const found = await prisma.device.findUnique({
-		where: { activationCode: activationCode.trim() },
-		select: {
-			id: true,
-			deviceUid: true,
-			userId: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+  return res.json({
+    devices: devices.map((d) => {
+      const latestTelemetry = latestByDeviceId.get(d.id) ?? null;
 
-	if (!found) return res.status(404).json({ error: 'Device not found' })
-	if (found.userId) return res.status(400).json({ error: 'Device already claimed' })
+      return {
+        ...d,
+        lastSeenAt: d.lastSeenAt ?? latestTelemetry?.ts ?? null,
+        latestTelemetry: mapTelemetry(latestTelemetry),
+      };
+    }),
+  });
+});
 
-	const updated = await prisma.device.update({
-		where: { id: found.id },
-		data: {
-			userId,
-			...(nextName ? { name: nextName } : {}),
-		},
-		select: {
-			id: true,
-			deviceUid: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+devicesRouter.get("/discover", async (req, res) => {
+  const method = discoverMethodFromQuery(req.query.method);
 
-	return res.status(200).json({
-		device: {
-			...updated,
-			latestTelemetry: null,
-		},
-		message: 'Waiting for device to come online...',
-	})
-})
+  if (!method) {
+    return res
+      .status(400)
+      .json({ error: "Invalid method (use wired|wifi|lpwan)" });
+  }
 
-devicesRouter.post('/claim-wifi', async (req, res) => {
-	const userId = req.user!.id
-	const { deviceUid, activationCode, name } = (req.body ?? {}) as {
-		deviceUid?: unknown
-		activationCode?: unknown
-		name?: unknown
-	}
+  const connectionType = getConnectionTypeFromMethod(method);
 
-	if (typeof deviceUid !== 'string' || !deviceUid.trim()) return res.status(400).json({ error: 'Missing deviceUid' })
-	if (typeof activationCode !== 'string' || !activationCode.trim()) {
-		return res.status(400).json({ error: 'Missing activationCode' })
-	}
-	const nextName = typeof name === 'string' ? name.trim() : ''
-	if (!nextName) return res.status(400).json({ error: 'Missing name' })
+  const devices = await prisma.device.findMany({
+    where: {
+      userId: null,
+      connectionType,
+    },
+    orderBy: { updatedAt: "desc" },
+    select: baseDeviceSelect,
+  });
 
-	const found = await prisma.device.findUnique({
-		where: { deviceUid: deviceUid.trim() },
-		select: {
-			id: true,
-			deviceUid: true,
-			activationCode: true,
-			userId: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+  return res.json({ devices });
+});
 
-	if (!found) return res.status(404).json({ error: 'Device not found' })
-	if (found.userId) return res.status(400).json({ error: 'Device already claimed' })
-	if (found.activationCode !== activationCode.trim()) return res.status(400).json({ error: 'Invalid activation code' })
+devicesRouter.post("/claim", async (req, res) => {
+  const userId = req.user!.id;
+  const { activationCode, name } = (req.body ?? {}) as {
+    activationCode?: unknown;
+    name?: unknown;
+  };
 
-	const updated = await prisma.device.update({
-		where: { id: found.id },
-		data: { userId, name: nextName },
-		select: {
-			id: true,
-			deviceUid: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+  if (typeof activationCode !== "string" || !activationCode.trim()) {
+    return res.status(400).json({ error: "Missing activationCode" });
+  }
 
-	return res.status(200).json({
-		device: {
-			...updated,
-			latestTelemetry: null,
-		},
-		message: 'Waiting for device to come online...',
-	})
-})
+  const nextName = typeof name === "string" ? name.trim() : "";
 
-devicesRouter.post('/claim-wired', async (req, res) => {
-	const userId = req.user!.id
-	const { deviceUid } = (req.body ?? {}) as { deviceUid?: unknown }
-	if (typeof deviceUid !== 'string' || !deviceUid.trim()) return res.status(400).json({ error: 'Missing deviceUid' })
+  const found = await prisma.device.findUnique({
+    where: { activationCode: activationCode.trim() },
+    select: {
+      id: true,
+      userId: true,
+      connectionType: true,
+    },
+  });
 
-	const found = await prisma.device.findUnique({
-		where: { deviceUid: deviceUid.trim() },
-		select: {
-			id: true,
-			deviceUid: true,
-			userId: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+  if (!found) return res.status(404).json({ error: "Device not found" });
+  if (found.userId) {
+    return res.status(400).json({ error: "Device already claimed" });
+  }
 
-	if (!found) return res.status(404).json({ error: 'Device not found' })
-	if (found.userId) return res.status(400).json({ error: 'Device already claimed' })
-	// Wired connection implies physical proximity; still require device to be online for realism.
-	if (found.status === DeviceStatus.OFFLINE) return res.status(400).json({ error: 'Device is offline' })
+  const updated = await prisma.device.update({
+    where: { id: found.id },
+    data: {
+      userId,
+      ...(nextName ? { name: nextName } : {}),
+      joinStatus:
+        found.connectionType === ConnectionType.LPWAN
+          ? DeviceJoinStatus.CLAIMED
+          : DeviceJoinStatus.UNCLAIMED,
+    },
+    select: baseDeviceSelect,
+  });
 
-	const updated = await prisma.device.update({
-		where: { id: found.id },
-		data: { userId },
-		select: {
-			id: true,
-			deviceUid: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-		},
-	})
+  return res.status(200).json({
+    device: {
+      ...updated,
+      latestTelemetry: null,
+    },
+    message: "Waiting for device to come online...",
+  });
+});
 
-	return res.status(200).json({
-		device: {
-			...updated,
-			latestTelemetry: null,
-		},
-		message: 'Waiting for device to come online...',
-	})
-})
+devicesRouter.post("/claim-wifi", async (req, res) => {
+  const userId = req.user!.id;
+  const { deviceUid, activationCode, name } = (req.body ?? {}) as {
+    deviceUid?: unknown;
+    activationCode?: unknown;
+    name?: unknown;
+  };
 
-devicesRouter.patch('/:id', async (req, res) => {
-	const userId = req.user!.id
-	const id = req.params.id
-	const { name, type } = (req.body ?? {}) as { name?: string; type?: string }
-	if (!name && !type) return res.status(400).json({ error: 'Nothing to update' })
+  if (typeof deviceUid !== "string" || !deviceUid.trim()) {
+    return res.status(400).json({ error: "Missing deviceUid" });
+  }
 
-	const updated = await prisma.device.updateMany({
-		where: { id, userId },
-		data: {
-			...(name ? { name } : {}),
-			...(type ? { type } : {}),
-		},
-	})
+  if (typeof activationCode !== "string" || !activationCode.trim()) {
+    return res.status(400).json({ error: "Missing activationCode" });
+  }
 
-	if (updated.count === 0) return res.status(404).json({ error: 'Device not found' })
+  const nextName = typeof name === "string" ? name.trim() : "";
+  if (!nextName) return res.status(400).json({ error: "Missing name" });
 
-	const device = await prisma.device.findFirst({
-		where: { id, userId },
-		select: {
-			id: true,
-			deviceUid: true,
-			name: true,
-			type: true,
-			model: true,
-			lightOn: true,
-			acOn: true,
-			acTargetTempC: true,
-			cameraFrameUrl: true,
-			status: true,
-			lastSeenAt: true,
-			createdAt: true,
-			updatedAt: true,
-			telemetry: {
-				orderBy: { ts: 'desc' },
-				take: 1,
-				select: { ts: true, temperatureC: true, humidityPct: true, signalDbm: true },
-			},
-		},
-	})
+  const found = await prisma.device.findUnique({
+    where: { deviceUid: deviceUid.trim() },
+    select: {
+      id: true,
+      activationCode: true,
+      userId: true,
+      connectionType: true,
+    },
+  });
 
-	if (!device) return res.status(404).json({ error: 'Device not found' })
+  if (!found) return res.status(404).json({ error: "Device not found" });
 
-	const latestTelemetry = device.telemetry[0] ?? null
-	return res.json({
-		device: {
-			id: device.id,
-			deviceUid: device.deviceUid,
-			name: device.name,
-			type: device.type,
-			model: device.model,
-			lightOn: device.lightOn,
-			acOn: device.acOn,
-			acTargetTempC: device.acTargetTempC,
-			cameraFrameUrl: device.cameraFrameUrl,
-			status: device.status,
-			lastSeenAt: device.lastSeenAt ?? latestTelemetry?.ts ?? null,
-			createdAt: device.createdAt,
-			updatedAt: device.updatedAt,
-			latestTelemetry: latestTelemetry
-				? mapTelemetry({
-					...latestTelemetry,
-					signalDbm: latestTelemetry.signalDbm ?? null,
-				})
-				: null,
-		},
-	})
-})
+  if (found.connectionType !== ConnectionType.WIFI) {
+    return res.status(400).json({ error: "Device is not a Wi-Fi device" });
+  }
 
-devicesRouter.post('/:id/control/light', async (req, res) => {
-	const userId = req.user!.id
-	const deviceId = req.params.id
-	const { on } = (req.body ?? {}) as { on?: unknown }
+  if (found.userId) {
+    return res.status(400).json({ error: "Device already claimed" });
+  }
 
-	if (typeof on !== 'boolean') return res.status(400).json({ error: 'Invalid on' })
+  if (found.activationCode !== activationCode.trim()) {
+    return res.status(400).json({ error: "Invalid activation code" });
+  }
 
-	const device = await prisma.device.findFirst({
-		where: { id: deviceId, userId },
-		select: { id: true, deviceUid: true, type: true },
-	})
-	if (!device) return res.status(404).json({ error: 'Device not found' })
-	if ((device.type ?? '').trim() !== 'Light') return res.status(400).json({ error: 'Device is not Light' })
+  const updated = await prisma.device.update({
+    where: { id: found.id },
+    data: {
+      userId,
+      name: nextName,
+    },
+    select: baseDeviceSelect,
+  });
 
-	try {
-		await publishDeviceCommand(device.deviceUid, { type: 'light:set', on })
-	} catch {
-		return res.status(503).json({ error: 'MQTT unavailable' })
-	}
+  return res.status(200).json({
+    device: {
+      ...updated,
+      latestTelemetry: null,
+    },
+    message: "Waiting for device to come online...",
+  });
+});
 
-	await prisma.device.update({
-		where: { id: device.id },
-		data: { lightOn: on },
-		select: { id: true },
-	})
+devicesRouter.post("/claim-lpwan", async (req, res) => {
+  const userId = req.user!.id;
+  const { devEui, activationCode, name } = (req.body ?? {}) as {
+    devEui?: unknown;
+    activationCode?: unknown;
+    name?: unknown;
+  };
 
-	getIO()?.to(userRoom(userId)).emit('device:runtime', {
-		deviceId: device.id,
-		lightOn: on,
-	})
+  if (typeof devEui !== "string" || !devEui.trim()) {
+    return res.status(400).json({ error: "Missing devEui" });
+  }
 
-	return res.status(202).json({ ok: true })
-})
+  if (typeof activationCode !== "string" || !activationCode.trim()) {
+    return res.status(400).json({ error: "Missing activationCode" });
+  }
 
-devicesRouter.post('/:id/control/ac', async (req, res) => {
-	const userId = req.user!.id
-	const deviceId = req.params.id
-	const { on, targetTempC } = (req.body ?? {}) as { on?: unknown; targetTempC?: unknown }
+  const nextName = typeof name === "string" ? name.trim() : "";
+  if (!nextName) return res.status(400).json({ error: "Missing name" });
 
-	const hasOn = typeof on === 'boolean'
-	const hasTarget = typeof targetTempC === 'number' && Number.isFinite(targetTempC)
-	if (!hasOn && !hasTarget) return res.status(400).json({ error: 'Missing on or targetTempC' })
-	if (hasTarget && (targetTempC < 16 || targetTempC > 30)) {
-		return res.status(400).json({ error: 'targetTempC must be between 16 and 30' })
-	}
+  const found = await prisma.device.findUnique({
+    where: { devEui: devEui.trim() },
+    select: {
+      id: true,
+      activationCode: true,
+      userId: true,
+      connectionType: true,
+    },
+  });
 
-	const device = await prisma.device.findFirst({
-		where: { id: deviceId, userId },
-		select: { id: true, deviceUid: true, type: true },
-	})
-	if (!device) return res.status(404).json({ error: 'Device not found' })
-	if ((device.type ?? '').trim() !== 'Air Conditioner') {
-		return res.status(400).json({ error: 'Device is not Air Conditioner' })
-	}
+  if (!found) return res.status(404).json({ error: "LPWAN device not found" });
 
-	const command: Record<string, unknown> = { type: 'ac:set' }
-	if (hasOn) command.on = on
-	if (hasTarget) command.targetTempC = targetTempC
+  if (found.connectionType !== ConnectionType.LPWAN) {
+    return res.status(400).json({ error: "Device is not an LPWAN device" });
+  }
 
-	try {
-		await publishDeviceCommand(device.deviceUid, command)
-	} catch {
-		return res.status(503).json({ error: 'MQTT unavailable' })
-	}
+  if (found.userId) {
+    return res.status(400).json({ error: "Device already claimed" });
+  }
 
-	await prisma.device.update({
-		where: { id: device.id },
-		data: {
-			...(hasOn ? { acOn: on as boolean } : {}),
-			...(hasTarget ? { acTargetTempC: Math.round(targetTempC as number) } : {}),
-		},
-		select: { id: true },
-	})
+  if (found.activationCode !== activationCode.trim()) {
+    return res.status(400).json({ error: "Invalid activation code" });
+  }
 
-	getIO()?.to(userRoom(userId)).emit('device:runtime', {
-		deviceId: device.id,
-		...(hasOn ? { acOn: on as boolean } : {}),
-		...(hasTarget ? { acTargetTempC: targetTempC as number } : {}),
-	})
+  const updated = await prisma.device.update({
+    where: { id: found.id },
+    data: {
+      userId,
+      name: nextName,
+      joinStatus: DeviceJoinStatus.CLAIMED,
+    },
+    select: baseDeviceSelect,
+  });
 
-	return res.status(202).json({ ok: true })
-})
+  const latestTelemetry = await prisma.telemetry.findFirst({
+    where: { deviceId: updated.id },
+    orderBy: { ts: "desc" },
+    select: telemetrySelect,
+  });
 
-devicesRouter.delete('/:id', async (req, res) => {
-	const userId = req.user!.id
-	const id = req.params.id
-	// Devices exist independently; deleting from a user's account should unclaim it.
-	const updated = await prisma.device.updateMany({
-		where: { id, userId },
-		data: { userId: null },
-	})
-	if (updated.count === 0) return res.status(404).json({ error: 'Device not found' })
-	return res.status(204).send()
-})
+  return res.status(200).json({
+    device: {
+      ...updated,
+      latestTelemetry: latestTelemetry
+        ? mapTelemetry({
+            ...latestTelemetry,
+            signalDbm: latestTelemetry.signalDbm ?? null,
+            rssi: latestTelemetry.rssi ?? null,
+            snr: latestTelemetry.snr ?? null,
+            spreadingFactor: latestTelemetry.spreadingFactor ?? null,
+            batteryPct: latestTelemetry.batteryPct ?? null,
+            uplinkCounter: latestTelemetry.uplinkCounter ?? null,
+          })
+        : null,
+    },
+    message: "LPWAN device claimed successfully.",
+  });
+});
+
+devicesRouter.post("/claim-wired", async (req, res) => {
+  const userId = req.user!.id;
+  const { deviceUid } = (req.body ?? {}) as { deviceUid?: unknown };
+
+  if (typeof deviceUid !== "string" || !deviceUid.trim()) {
+    return res.status(400).json({ error: "Missing deviceUid" });
+  }
+
+  const found = await prisma.device.findUnique({
+    where: { deviceUid: deviceUid.trim() },
+    select: {
+      id: true,
+      userId: true,
+      connectionType: true,
+      status: true,
+    },
+  });
+
+  if (!found) return res.status(404).json({ error: "Device not found" });
+
+  if (found.connectionType !== ConnectionType.WIRED) {
+    return res.status(400).json({ error: "Device is not a wired device" });
+  }
+
+  if (found.userId) {
+    return res.status(400).json({ error: "Device already claimed" });
+  }
+
+  if (found.status === DeviceStatus.OFFLINE) {
+    return res.status(400).json({ error: "Device is offline" });
+  }
+
+  const updated = await prisma.device.update({
+    where: { id: found.id },
+    data: { userId },
+    select: baseDeviceSelect,
+  });
+
+  return res.status(200).json({
+    device: {
+      ...updated,
+      latestTelemetry: null,
+    },
+    message: "Waiting for device to come online...",
+  });
+});
+
+devicesRouter.patch("/:id", async (req, res) => {
+  const userId = req.user!.id;
+  const id = req.params.id;
+  const { name, type } = (req.body ?? {}) as { name?: string; type?: string };
+
+  if (!name && !type) {
+    return res.status(400).json({ error: "Nothing to update" });
+  }
+
+  const updated = await prisma.device.updateMany({
+    where: { id, userId },
+    data: {
+      ...(name ? { name } : {}),
+      ...(type ? { type } : {}),
+    },
+  });
+
+  if (updated.count === 0) {
+    return res.status(404).json({ error: "Device not found" });
+  }
+
+  const device = await prisma.device.findFirst({
+    where: { id, userId },
+    select: {
+      ...baseDeviceSelect,
+      telemetry: {
+        orderBy: { ts: "desc" },
+        take: 1,
+        select: telemetrySelect,
+      },
+    },
+  });
+
+  if (!device) return res.status(404).json({ error: "Device not found" });
+
+  const latestTelemetry = device.telemetry[0] ?? null;
+  const { telemetry, ...deviceWithoutTelemetry } = device;
+
+  return res.json({
+    device: {
+      ...deviceWithoutTelemetry,
+      lastSeenAt: device.lastSeenAt ?? latestTelemetry?.ts ?? null,
+      latestTelemetry: latestTelemetry
+        ? mapTelemetry({
+            ...latestTelemetry,
+            signalDbm: latestTelemetry.signalDbm ?? null,
+            rssi: latestTelemetry.rssi ?? null,
+            snr: latestTelemetry.snr ?? null,
+            spreadingFactor: latestTelemetry.spreadingFactor ?? null,
+            batteryPct: latestTelemetry.batteryPct ?? null,
+            uplinkCounter: latestTelemetry.uplinkCounter ?? null,
+          })
+        : null,
+    },
+  });
+});
+
+devicesRouter.post("/:id/control/light", async (req, res) => {
+  const userId = req.user!.id;
+  const deviceId = req.params.id;
+  const { on } = (req.body ?? {}) as { on?: unknown };
+
+  if (typeof on !== "boolean") {
+    return res.status(400).json({ error: "Invalid on" });
+  }
+
+  const device = await prisma.device.findFirst({
+    where: { id: deviceId, userId },
+    select: { id: true, deviceUid: true, type: true },
+  });
+
+  if (!device) return res.status(404).json({ error: "Device not found" });
+
+  if ((device.type ?? "").trim() !== "Light") {
+    return res.status(400).json({ error: "Device is not Light" });
+  }
+
+  try {
+    await publishDeviceCommand(device.deviceUid, { type: "light:set", on });
+  } catch {
+    return res.status(503).json({ error: "MQTT unavailable" });
+  }
+
+  await prisma.device.update({
+    where: { id: device.id },
+    data: { lightOn: on },
+    select: { id: true },
+  });
+
+  getIO()?.to(userRoom(userId)).emit("device:runtime", {
+    deviceId: device.id,
+    lightOn: on,
+  });
+
+  return res.status(202).json({ ok: true });
+});
+
+devicesRouter.post("/:id/control/ac", async (req, res) => {
+  const userId = req.user!.id;
+  const deviceId = req.params.id;
+  const { on, targetTempC } = (req.body ?? {}) as {
+    on?: unknown;
+    targetTempC?: unknown;
+  };
+
+  const hasOn = typeof on === "boolean";
+  const hasTarget =
+    typeof targetTempC === "number" && Number.isFinite(targetTempC);
+
+  if (!hasOn && !hasTarget) {
+    return res.status(400).json({ error: "Missing on or targetTempC" });
+  }
+
+  if (hasTarget && (targetTempC < 16 || targetTempC > 30)) {
+    return res
+      .status(400)
+      .json({ error: "targetTempC must be between 16 and 30" });
+  }
+
+  const device = await prisma.device.findFirst({
+    where: { id: deviceId, userId },
+    select: { id: true, deviceUid: true, type: true },
+  });
+
+  if (!device) return res.status(404).json({ error: "Device not found" });
+
+  if ((device.type ?? "").trim() !== "Air Conditioner") {
+    return res.status(400).json({ error: "Device is not Air Conditioner" });
+  }
+
+  const command: Record<string, unknown> = { type: "ac:set" };
+  if (hasOn) command.on = on;
+  if (hasTarget) command.targetTempC = targetTempC;
+
+  try {
+    await publishDeviceCommand(device.deviceUid, command);
+  } catch {
+    return res.status(503).json({ error: "MQTT unavailable" });
+  }
+
+  await prisma.device.update({
+    where: { id: device.id },
+    data: {
+      ...(hasOn ? { acOn: on as boolean } : {}),
+      ...(hasTarget
+        ? { acTargetTempC: Math.round(targetTempC as number) }
+        : {}),
+    },
+    select: { id: true },
+  });
+
+  getIO()
+    ?.to(userRoom(userId))
+    .emit("device:runtime", {
+      deviceId: device.id,
+      ...(hasOn ? { acOn: on as boolean } : {}),
+      ...(hasTarget ? { acTargetTempC: targetTempC as number } : {}),
+    });
+
+  return res.status(202).json({ ok: true });
+});
+
+devicesRouter.delete("/:id", async (req, res) => {
+  const userId = req.user!.id;
+  const id = req.params.id;
+
+  const existing = await prisma.device.findFirst({
+    where: { id, userId },
+    select: {
+      id: true,
+      connectionType: true,
+    },
+  });
+
+  if (!existing) return res.status(404).json({ error: "Device not found" });
+
+  await prisma.device.update({
+    where: { id: existing.id },
+    data: {
+      userId: null,
+      joinStatus:
+        existing.connectionType === ConnectionType.LPWAN
+          ? DeviceJoinStatus.UNCLAIMED
+          : DeviceJoinStatus.UNCLAIMED,
+    },
+    select: { id: true },
+  });
+
+  return res.status(204).send();
+});

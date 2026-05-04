@@ -14,6 +14,23 @@ enum DeviceStatus {
   WARNING
 }
 
+enum ConnectionType {
+  WIFI
+  WIRED
+  LPWAN
+}
+
+enum NetworkType {
+  LORAWAN
+  NB_IOT
+  LTE_M
+}
+
+enum DeviceJoinStatus {
+  UNCLAIMED
+  CLAIMED
+}
+
 model User {
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
@@ -27,17 +44,32 @@ model User {
 }
 
 model Device {
-  id             String       @id @default(uuid()) @db.Uuid
-  deviceUid      String       @unique @map("device_uid")
-  activationCode String       @unique @map("activation_code")
-  userId         String?      @db.Uuid @map("user_id")
+  id             String  @id @default(uuid()) @db.Uuid
+  deviceUid      String  @unique @map("device_uid")
+  activationCode String  @unique @map("activation_code")
+  userId         String? @db.Uuid @map("user_id")
 
-  // Optional metadata (demo-friendly, production-like)
-  type      String @default("sensor")
-  model     String @default("LPWAN-X1")
-  name      String @default("")
+  // Basic metadata
+  type  String @default("sensor")
+  model String @default("LPWAN-X1")
+  name  String @default("")
 
-  // Optional runtime state (control devices)
+  // Connection/network metadata
+  connectionType ConnectionType   @default(WIFI) @map("connection_type")
+  networkType    NetworkType?     @map("network_type")
+  joinStatus     DeviceJoinStatus @default(UNCLAIMED) @map("join_status")
+
+  // LoRaWAN-like identifiers and latest radio metadata
+  devEui              String?   @unique @map("dev_eui")
+  gatewayId           String?   @map("gateway_id")
+  lastJoinAt          DateTime? @map("last_join_at")
+  lastRssi            Float?    @map("last_rssi")
+  lastSnr             Float?    @map("last_snr")
+  lastSpreadingFactor Int?      @map("last_spreading_factor")
+  lastBatteryPct      Float?    @map("last_battery_pct")
+  lastUplinkCounter   Int?      @map("last_uplink_counter")
+
+  // Optional runtime state
   lightOn        Boolean? @map("light_on")
   acOn           Boolean? @map("ac_on")
   acTargetTempC  Int?     @map("ac_target_temp_c")
@@ -48,10 +80,13 @@ model Device {
   createdAt  DateTime     @default(now()) @map("created_at")
   updatedAt  DateTime     @updatedAt @map("updated_at")
 
-  user      User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   telemetry Telemetry[]
 
   @@index([userId])
+  @@index([connectionType])
+  @@index([networkType])
+  @@index([joinStatus])
   @@map("devices")
 }
 
@@ -62,6 +97,13 @@ model Telemetry {
   temperatureC Float    @map("temperature_c")
   humidityPct  Float    @map("humidity_pct")
   signalDbm    Float?   @map("signal_dbm")
+
+  // LoRaWAN-like uplink metadata
+  rssi            Float? @map("rssi")
+  snr             Float? @map("snr")
+  spreadingFactor Int?   @map("spreading_factor")
+  batteryPct      Float? @map("battery_pct")
+  uplinkCounter   Int?   @map("uplink_counter")
 
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 

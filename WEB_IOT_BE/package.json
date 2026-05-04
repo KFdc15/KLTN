@@ -16,7 +16,8 @@
     "db:push:local": "npm run prisma:local -- db push",
     "db:seed:local": "npm run prisma:local -- db seed",
     "prisma:studio:local": "npm run prisma:local -- studio",
-    "sim:mqtt": "tsx src/simulator/mqttSimulator.ts"
+    "sim:mqtt": "tsx src/simulator/mqttSimulator.ts",
+    "sim:lpwan": "tsx src/simulator/lpwanSimulator.ts"
   },
   "keywords": [],
   "author": "",
