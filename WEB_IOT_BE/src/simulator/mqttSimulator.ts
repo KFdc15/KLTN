@@ -74,8 +74,8 @@ type DeviceState = {
 
 function defaultStateFor(uid: string): DeviceState {
 	// Seed defaults: Light off, AC off with 24°C.
-	if (uid === 'LPWAN_004') return { lightOn: false }
-	if (uid === 'LPWAN_005') return { acOn: false, acTargetTempC: 24 }
+	if (uid === 'LIGHT_ETH_001') return { lightOn: false }
+	if (uid === 'WIFI_AC_001') return { acOn: false, acTargetTempC: 24 }
 	return {}
 }
 
@@ -115,12 +115,11 @@ async function main() {
 				? DEVICE_UID_LIST
 				: []
 	const maxDefaultDevices = 5
+	const defaultUids = ['LPWAN_001', 'WIFI_001', 'CAMERA_ETH_001', 'LIGHT_ETH_001', 'WIFI_AC_001']
 	const deviceCount = preferredUids.length
 		? clamp(preferredUids.length, 1, 50)
 		: clamp(DEVICE_COUNT, 1, maxDefaultDevices)
-	const uids = preferredUids.length
-		? preferredUids
-		: Array.from({ length: deviceCount }, (_, i) => `LPWAN_${String(i + 1).padStart(3, '0')}`)
+	const uids = preferredUids.length ? preferredUids : defaultUids.slice(0, deviceCount)
 
 	const client = mqtt.connect(MQTT_URL, {
 		username: MQTT_USERNAME || undefined,
@@ -206,14 +205,14 @@ async function main() {
 			}
 
 			// Demo extras by UID (keeps the new backend logic intact)
-			if (uid === 'LPWAN_004') {
+			if (uid === 'LIGHT_ETH_001') {
 				payload.lightOn = state.lightOn ?? false
 			}
-			if (uid === 'LPWAN_005') {
+			if (uid === 'WIFI_AC_001') {
 				payload.acOn = state.acOn ?? false
 				payload.acTargetTempC = state.acTargetTempC ?? 24
 			}
-			if (uid === 'LPWAN_003') {
+			if (uid === 'CAMERA_ETH_001') {
 				const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="100%" height="100%" fill="#111827"/><text x="24" y="56" fill="#e5e7eb" font-family="Arial" font-size="28">Camera 01</text><text x="24" y="92" fill="#9ca3af" font-family="Arial" font-size="16">${ts}</text></svg>`
 				payload.cameraFrame = Buffer.from(svg).toString('base64')
 			}

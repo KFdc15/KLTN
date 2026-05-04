@@ -8,7 +8,6 @@ export type DeviceRow = {
   name: string;
   type: string;
   connection: string;
-  connectionDetail?: string;
   status: DeviceStatus;
   lastUpdate: string;
   spark: number[];
@@ -203,12 +202,6 @@ function lastValue(values: number[]) {
             </td>
             <td class="whitespace-nowrap px-5 py-4 text-sm text-gray-700">
               <div class="font-medium text-gray-800">{{ d.connection }}</div>
-              <div
-                v-if="d.connectionDetail"
-                class="mt-1 max-w-xs whitespace-normal text-xs text-gray-500"
-              >
-                {{ d.connectionDetail }}
-              </div>
             </td>
             <td class="whitespace-nowrap px-5 py-4">
               <span

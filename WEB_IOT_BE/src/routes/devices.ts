@@ -163,6 +163,7 @@ devicesRouter.get("/discover", async (req, res) => {
     where: {
       userId: null,
       connectionType,
+      status: { not: DeviceStatus.OFFLINE },
     },
     orderBy: { updatedAt: "desc" },
     select: baseDeviceSelect,
