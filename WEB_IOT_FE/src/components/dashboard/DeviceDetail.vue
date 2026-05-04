@@ -36,9 +36,24 @@ const lastActivityLabel = computed(() => {
 const powerW = computed(() => {
 	const d = device.value
 	if (!d) return null
+	const uid = (d.deviceUid ?? '').trim().toUpperCase()
 	const type = (d.type ?? '').toLowerCase()
+
+	// Runtime-dependent devices
 	if (type.includes('air') || type.includes('ac')) return d.acOn ? 1200 : 0
 	if (type.includes('light')) return d.lightOn ? 9 : 0
+
+	// Seeded/demo devices: provide stable estimated power per device
+	if (uid === 'WIFI_001') return 0.8
+	if (uid === 'CAMERA_ETH_001') return 6
+	if (uid === 'LPWAN_001') return 0.2
+	if (uid.startsWith('LPWAN_')) return 0.2
+
+	// Fallbacks by type
+	if (type.includes('camera') || type.includes('cam')) return 6
+	if (type.includes('humid')) return 0.8
+	if (type.includes('temp') || type.includes('thermo')) return 0.2
+
 	return null
 })
 
