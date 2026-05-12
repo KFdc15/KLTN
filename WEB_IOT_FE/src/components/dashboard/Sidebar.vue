@@ -6,6 +6,7 @@ import { useAuthStore } from '../../store/authStore'
 import {
 	HomeIcon,
 	CpuChipIcon,
+	Squares2X2Icon,
 	PlusCircleIcon,
 	ArrowRightOnRectangleIcon,
 } from '@heroicons/vue/24/outline'
@@ -25,6 +26,7 @@ const auth = useAuthStore()
 const primaryNav = [
 	{ label: 'Dashboard', to: '/app/dashboard', icon: HomeIcon },
 	{ label: 'My Devices', to: '/app/devices', icon: CpuChipIcon },
+	{ label: 'Categories', to: '/app/groups', icon: Squares2X2Icon },
 	{ label: 'Add Device', to: '/app/add-device', icon: PlusCircleIcon },
 ]
 

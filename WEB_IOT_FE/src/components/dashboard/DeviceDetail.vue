@@ -115,6 +115,11 @@ const deviceKind = computed<DeviceKind>(() => {
 
 const isLightType = computed(() => deviceKind.value === 'light')
 const isAcType = computed(() => deviceKind.value === 'ac')
+const availableControlCount = computed(() => {
+	if (isAcType.value) return 2
+	if (isLightType.value) return 1
+	return 0
+})
 
 const windowPoints = computed<TelemetryPoint[]>(() => {
 	if (!device.value) return []
@@ -581,7 +586,7 @@ onBeforeUnmount(() => {
 				</div>
 			</div>
 
-			<div class="rounded-2xl bg-white p-6 shadow-sm">
+			<div v-if="availableControlCount > 1" class="rounded-2xl bg-white p-6 shadow-sm">
 				<div class="flex items-start justify-between gap-3">
 					<div>
 						<h3 class="text-base font-semibold text-gray-900">Control visibility</h3>

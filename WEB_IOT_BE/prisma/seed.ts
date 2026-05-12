@@ -35,6 +35,14 @@ async function main() {
       connectionType: ConnectionType.WIFI,
     },
     {
+      deviceUid: "TEMP_WIFI_001",
+      activationCode: "TEMP123",
+      name: "Temperature Sensor 01",
+      type: "Temperature",
+      model: "WIFI-T1",
+      connectionType: ConnectionType.WIFI,
+    },
+    {
       deviceUid: "CAMERA_ETH_001",
       activationCode: "CAM123",
       name: "Camera 01",

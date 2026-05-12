@@ -6,6 +6,7 @@ import morgan from 'morgan'
 import { env } from './env'
 import { authRouter } from './routes/auth'
 import { devicesRouter } from './routes/devices'
+import { groupsRouter } from './routes/groups'
 
 export function createApp() {
 	const app = express()
@@ -27,6 +28,7 @@ export function createApp() {
 
 	app.use('/auth', authRouter)
 	app.use('/devices', devicesRouter)
+	app.use('/groups', groupsRouter)
 
 	return app
 }

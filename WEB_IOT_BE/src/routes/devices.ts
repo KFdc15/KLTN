@@ -228,6 +228,10 @@ devicesRouter.put("/:id/control-config", async (req, res) => {
     where: { deviceType: typeKey },
     select: { config: true },
   });
+  const existingOverride = await prisma.deviceControlOverride.findUnique({
+    where: { deviceId: device.id },
+    select: { config: true },
+  });
 
   const hasAny = Object.keys(controls).length > 0;
   if (!hasAny) {
@@ -235,12 +239,16 @@ devicesRouter.put("/:id/control-config", async (req, res) => {
       where: { deviceId: device.id },
     });
   } else {
+    const merged = {
+      ...normalizeControlConfig(existingOverride?.config),
+      ...controls,
+    };
     await prisma.deviceControlOverride.upsert({
       where: { deviceId: device.id },
-      update: { config: controls as unknown as object },
+      update: { config: merged as unknown as object },
       create: {
         deviceId: device.id,
-        config: controls as unknown as object,
+        config: merged as unknown as object,
       },
     });
   }

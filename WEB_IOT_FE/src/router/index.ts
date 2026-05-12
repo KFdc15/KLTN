@@ -36,6 +36,12 @@ const routes: RouteRecordRaw[] = [
 				meta: { title: 'My Devices' },
 			},
 			{
+				path: 'groups',
+				name: 'app-groups',
+				component: () => import('../components/dashboard/Groups.vue'),
+				meta: { title: 'Categories' },
+			},
+			{
 				path: 'devices/:id',
 				name: 'app-device-detail',
 				component: () => import('../components/dashboard/DeviceDetail.vue'),
