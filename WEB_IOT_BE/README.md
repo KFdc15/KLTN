@@ -15,7 +15,7 @@ After `npm run db:seed`, you can login with:
 - Email: `admin@example.com`
 - Password: `admin123`
 
-Seed also creates devices: `LPWAN_SENSOR_01` .. `LPWAN_SENSOR_05`.
+Seed also creates devices: `WIFI_001`, `CAMERA_ETH_001`, `LIGHT_ETH_001`, `WIFI_AC_001`.
 
 ### Environment
 Create `.env` (already ignored by git) from `.env.example` and fill `DATABASE_URL`.
@@ -44,7 +44,7 @@ If you keep your Supabase connection strings in `.env.local` (instead of `.env`)
 ### Device Simulator (MQTT)
 - Set `MQTT_URL` in `.env` (example: `mqtt://localhost:1883`)
 - Run: `npm run sim:mqtt`
-- Payloads are published to: `iot/<uid>/telemetry`
+- Payloads are published to: `iot/devices/<uid>/telemetry`
 
 Part 7 env (NodeJS simulator):
 - `DEVICE_COUNT` (default: 3)
@@ -54,7 +54,7 @@ Part 7 env (NodeJS simulator):
 - `MQTT_URL` (required)
 
 Notes:
-- The simulator publishes to UIDs like `LPWAN_SENSOR_01`, `LPWAN_SENSOR_02`, ... (seeded up to `_05`) unless you override with `SIM_DEVICE_UIDS`.
+- The simulator publishes to seeded UIDs unless you override with `SIM_DEVICE_UIDS`.
 - UID override priority: `SIM_DEVICE_UIDS` -> `DEVICE_UIDS` -> `DEVICE_UID` -> default seeded UIDs.
 - Backend only saves telemetry for devices that already exist in DB (same `uid`). Create devices first (via FE or `POST /devices`).
 

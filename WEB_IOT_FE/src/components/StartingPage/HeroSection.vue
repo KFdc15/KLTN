@@ -14,13 +14,13 @@ import { reveal as vReveal } from '../../directives/reveal'
 					<div v-reveal class="relative">
 						<p class="inline-flex items-center gap-2 rounded-2xl border border-white/40 bg-white/60 px-3 py-1 text-xs font-medium text-slate-700">
 							<span class="h-1.5 w-1.5 rounded-full bg-emerald-500/80" />
-							Realtime LPWAN Fleet
+							Realtime Device Fleet
 						</p>
 						<h1 class="mt-5 text-balance text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl">
 							Smart IoT Device Management Platform
 						</h1>
 						<p class="mt-4 max-w-xl text-pretty text-base leading-7 text-slate-600">
-							Monitor, control, and automate your LPWAN devices in real-time.
+							Monitor, control, and automate your IoT devices in real-time.
 						</p>
 
 						<div class="mt-8 flex flex-wrap items-center gap-3">

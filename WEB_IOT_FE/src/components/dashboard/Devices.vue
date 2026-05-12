@@ -9,29 +9,9 @@ const store = useDeviceStore();
 const router = useRouter();
 
 function connectionLabel(connectionType: string | undefined) {
-  if (connectionType === "LPWAN") return "LPWAN";
   if (connectionType === "WIRED") return "Wired";
   if (connectionType === "WIFI") return "Wi-Fi";
   return "—";
-}
-
-function lpwanMeta(d: ReturnType<typeof useDeviceStore>["devices"][number]) {
-  if (d.connectionType !== "LPWAN") return "";
-
-  const parts = [
-    d.networkType || "LORAWAN",
-    d.gatewayId ? `Gateway ${d.gatewayId}` : "",
-    typeof d.lastRssi === "number" ? `RSSI ${Math.round(d.lastRssi)} dBm` : "",
-    typeof d.lastSnr === "number" ? `SNR ${d.lastSnr} dB` : "",
-    typeof d.lastSpreadingFactor === "number"
-      ? `SF${d.lastSpreadingFactor}`
-      : "",
-    typeof d.lastBatteryPct === "number"
-      ? `Battery ${Math.round(d.lastBatteryPct)}%`
-      : "",
-  ];
-
-  return parts.filter(Boolean).join(" · ");
 }
 
 const rows = computed<DeviceRow[]>(() => {
@@ -40,12 +20,11 @@ const rows = computed<DeviceRow[]>(() => {
     name: d.name,
     type: d.type,
     connection: connectionLabel(d.connectionType),
-    connectionDetail: lpwanMeta(d),
     status: d.status,
     lastUpdate: store.getLastUpdateLabel(d),
     spark: store
       .getTelemetryWindow(d.id)
-      .map((p) => p.rssi ?? p.signalDbm)
+      .map((p) => p.signalDbm)
       .filter((v): v is number => typeof v === "number" && Number.isFinite(v)),
   }));
 });

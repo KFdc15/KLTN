@@ -7,20 +7,13 @@ import { formatRelativeTime } from "../lib/time";
 import { useAuthStore } from "./authStore";
 
 export type DeviceStatus = "ONLINE" | "OFFLINE" | "WARNING";
-export type ConnectionType = "WIFI" | "WIRED" | "LPWAN";
-export type NetworkType = "LORAWAN" | "NB_IOT" | "LTE_M";
-export type DeviceJoinStatus = "UNCLAIMED" | "CLAIMED";
+export type ConnectionType = "WIFI" | "WIRED";
 
 export type TelemetryPoint = {
   ts: string;
   temperatureC: number;
   humidityPct: number;
   signalDbm?: number | null;
-  rssi?: number | null;
-  snr?: number | null;
-  spreadingFactor?: number | null;
-  batteryPct?: number | null;
-  uplinkCounter?: number | null;
 };
 
 export type RuntimePoint = {
@@ -28,6 +21,12 @@ export type RuntimePoint = {
   lightOn?: boolean;
   acOn?: boolean;
   acTargetTempC?: number;
+};
+
+export type ControlConfig = {
+  lightToggle: boolean;
+  acToggle: boolean;
+  acTargetTemp: boolean;
 };
 
 export type CameraFramePoint = {
@@ -42,17 +41,9 @@ export type Device = {
   type: string;
   model?: string;
   connectionType?: ConnectionType;
-  networkType?: NetworkType | null;
-  joinStatus?: DeviceJoinStatus;
-  devEui?: string | null;
-  gatewayId?: string | null;
-  lastJoinAt?: string | null;
-  lastRssi?: number | null;
-  lastSnr?: number | null;
-  lastSpreadingFactor?: number | null;
-  lastBatteryPct?: number | null;
-  lastUplinkCounter?: number | null;
   status: DeviceStatus;
+  telemetryBlocked?: boolean;
+  controlConfig?: ControlConfig;
   lastSeenAt: string | null;
   latestTelemetry: TelemetryPoint | null;
   lightOn?: boolean;
@@ -87,11 +78,6 @@ type TelemetryNewEvent = {
   temperatureC: number;
   humidityPct: number;
   signalDbm?: number | null;
-  rssi?: number | null;
-  snr?: number | null;
-  spreadingFactor?: number | null;
-  batteryPct?: number | null;
-  uplinkCounter?: number | null;
 };
 
 type DeviceRuntimeEvent = {
@@ -104,7 +90,6 @@ type DeviceRuntimeEvent = {
 export type DiscoverableDevice = {
   id: string;
   deviceUid: string;
-  devEui?: string | null;
   name: string;
   type: string;
   model: string;
@@ -114,15 +99,6 @@ export type DiscoverableDevice = {
   updatedAt: string;
 
   connectionType?: ConnectionType;
-  networkType?: NetworkType | null;
-  joinStatus?: DeviceJoinStatus;
-  gatewayId?: string | null;
-  lastJoinAt?: string | null;
-  lastRssi?: number | null;
-  lastSnr?: number | null;
-  lastSpreadingFactor?: number | null;
-  lastBatteryPct?: number | null;
-  lastUplinkCounter?: number | null;
 };
 
 type PendingRuntime = {
@@ -337,31 +313,6 @@ export const useDeviceStore = defineStore("device", {
       s.on("camera:frame", (payload: CameraFrameEvent) => {
         this.applyCameraFrame(payload);
       });
-      s.on(
-        "device:lpwan",
-        (payload: {
-          deviceId: string;
-          gatewayId?: string | null;
-          lastRssi?: number | null;
-          lastSnr?: number | null;
-          lastSpreadingFactor?: number | null;
-          lastBatteryPct?: number | null;
-          lastUplinkCounter?: number | null;
-        }) => {
-          const device = this.devices.find((d) => d.id === payload.deviceId);
-          if (!device) return;
-
-          device.gatewayId = payload.gatewayId ?? device.gatewayId ?? null;
-          device.lastRssi = payload.lastRssi ?? device.lastRssi ?? null;
-          device.lastSnr = payload.lastSnr ?? device.lastSnr ?? null;
-          device.lastSpreadingFactor =
-            payload.lastSpreadingFactor ?? device.lastSpreadingFactor ?? null;
-          device.lastBatteryPct =
-            payload.lastBatteryPct ?? device.lastBatteryPct ?? null;
-          device.lastUplinkCounter =
-            payload.lastUplinkCounter ?? device.lastUplinkCounter ?? null;
-        },
-      );
     },
     disconnectSocket() {
       if (!socket) return;
@@ -377,11 +328,6 @@ export const useDeviceStore = defineStore("device", {
           temperatureC: payload.temperatureC,
           humidityPct: payload.humidityPct,
           signalDbm: payload.signalDbm ?? null,
-          rssi: payload.rssi ?? null,
-          snr: payload.snr ?? null,
-          spreadingFactor: payload.spreadingFactor ?? null,
-          batteryPct: payload.batteryPct ?? null,
-          uplinkCounter: payload.uplinkCounter ?? null,
         };
         device.latestTelemetry = point;
         device.lastSeenAt = payload.ts;
@@ -485,11 +431,11 @@ export const useDeviceStore = defineStore("device", {
       while (window.length > 30) window.shift();
       this.cameraFrameWindowByDeviceId[payload.deviceId] = window;
     },
-    async discoverDevices(input: { method: "wired" | "wifi" | "lpwan" }) {
+    async discoverDevices(input: { method: "wired" | "wifi" }) {
       const auth = useAuthStore();
       if (!auth.accessToken) throw new Error("Not authenticated");
       const method = input?.method;
-      if (method !== "wired" && method !== "wifi" && method !== "lpwan")
+      if (method !== "wired" && method !== "wifi")
         throw new Error("Invalid discovery method");
       const data = await apiRequest<{ devices: DiscoverableDevice[] }>(
         "/devices/discover?method=" + method,
@@ -579,57 +525,6 @@ export const useDeviceStore = defineStore("device", {
         throw err instanceof Error
           ? err
           : new Error("Failed to connect device");
-      }
-    },
-
-    async claimLpwanDevice(input: {
-      devEui: string;
-      activationCode: string;
-      name: string;
-    }) {
-      const auth = useAuthStore();
-      if (!auth.accessToken) throw new Error("Not authenticated");
-
-      const devEui = (input?.devEui ?? "").trim();
-      const activationCode = (input?.activationCode ?? "").trim();
-      const name = (input?.name ?? "").trim();
-
-      if (!devEui) throw new Error("DevEUI is required");
-      if (!name) throw new Error("Device name is required");
-      if (!activationCode) throw new Error("Activation code is required");
-
-      try {
-        const data = await apiRequest<{ device: Device; message?: string }>(
-          "/devices/claim-lpwan",
-          {
-            method: "POST",
-            token: auth.accessToken,
-            body: { devEui, activationCode, name },
-          },
-        );
-
-        this.devices = [
-          data.device,
-          ...this.devices.filter((d) => d.id !== data.device.id),
-        ];
-        this.telemetryWindowByDeviceId[data.device.id] = data.device
-          .latestTelemetry
-          ? [data.device.latestTelemetry]
-          : [];
-
-        const label = (data.device.name ?? "").trim() || data.device.type;
-        this.pushNotification({
-          kind: "device-added",
-          deviceId: data.device.id,
-          title: "LPWAN device claimed",
-          message: label,
-        });
-
-        return true;
-      } catch (err) {
-        throw err instanceof Error
-          ? err
-          : new Error("Failed to claim LPWAN device");
       }
     },
 
@@ -730,6 +625,80 @@ export const useDeviceStore = defineStore("device", {
         this.error =
           err instanceof Error ? err.message : "Failed to delete device";
         return false;
+      }
+    },
+    async disconnectDevice(input: { id: string }) {
+      const auth = useAuthStore();
+      if (!auth.accessToken) throw new Error("Not authenticated");
+      const id = (input?.id ?? "").trim();
+      if (!id) throw new Error("Device is required");
+      try {
+        const data = await apiRequest<{ device: Device }>(
+          `/devices/${id}/disconnect`,
+          {
+            method: "POST",
+            token: auth.accessToken,
+          },
+        );
+        this.devices = [
+          data.device,
+          ...this.devices.filter((d) => d.id !== data.device.id),
+        ];
+        return true;
+      } catch (err) {
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to disconnect device");
+      }
+    },
+    async reconnectDevice(input: { id: string }) {
+      const auth = useAuthStore();
+      if (!auth.accessToken) throw new Error("Not authenticated");
+      const id = (input?.id ?? "").trim();
+      if (!id) throw new Error("Device is required");
+      try {
+        const data = await apiRequest<{ device: Device }>(
+          `/devices/${id}/reconnect`,
+          {
+            method: "POST",
+            token: auth.accessToken,
+          },
+        );
+        this.devices = [
+          data.device,
+          ...this.devices.filter((d) => d.id !== data.device.id),
+        ];
+        return true;
+      } catch (err) {
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to reconnect device");
+      }
+    },
+    async updateDeviceControlConfig(input: {
+      id: string;
+      patch: Partial<ControlConfig>;
+    }) {
+      const auth = useAuthStore();
+      if (!auth.accessToken) throw new Error("Not authenticated");
+      const id = (input?.id ?? "").trim();
+      if (!id) throw new Error("Device is required");
+      try {
+        const data = await apiRequest<{
+          resolved: ControlConfig;
+        }>(`/devices/${id}/control-config`, {
+          method: "PUT",
+          token: auth.accessToken,
+          body: input.patch ?? {},
+        });
+
+        const device = this.devices.find((d) => d.id === id);
+        if (device) device.controlConfig = data.resolved;
+        return data.resolved;
+      } catch (err) {
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to update control config");
       }
     },
     async setLight(input: { id: string; on: boolean }) {

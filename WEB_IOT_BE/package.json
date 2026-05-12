@@ -16,9 +16,7 @@
     "db:push:local": "npm run prisma:local -- db push",
     "db:seed:local": "npm run prisma:local -- db seed",
     "prisma:studio:local": "npm run prisma:local -- studio",
-    "sim:mqtt": "tsx src/simulator/mqttSimulator.ts",
-    "sim:lpwan": "tsx src/simulator/lpwanSimulator.ts",
-    "sim:all": "concurrently -n mqtt,lpwan -c cyan,magenta \"npm:sim:mqtt\" \"npm:sim:lpwan\""
+    "sim:mqtt": "tsx src/simulator/mqttSimulator.ts"
   },
   "keywords": [],
   "author": "",
@@ -43,7 +41,6 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/morgan": "^1.9.10",
     "@types/node": "^25.5.0",
-    "concurrently": "^9.2.1",
     "prisma": "6.19.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2"

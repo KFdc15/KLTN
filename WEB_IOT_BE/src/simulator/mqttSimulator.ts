@@ -115,7 +115,7 @@ async function main() {
 				? DEVICE_UID_LIST
 				: []
 	const maxDefaultDevices = 5
-	const defaultUids = ['LPWAN_001', 'WIFI_001', 'CAMERA_ETH_001', 'LIGHT_ETH_001', 'WIFI_AC_001']
+	const defaultUids = ['WIFI_001', 'CAMERA_ETH_001', 'LIGHT_ETH_001', 'WIFI_AC_001']
 	const deviceCount = preferredUids.length
 		? clamp(preferredUids.length, 1, 50)
 		: clamp(DEVICE_COUNT, 1, maxDefaultDevices)

@@ -23,21 +23,15 @@ import { reveal as vReveal } from '../../directives/reveal'
 			</div>
 
 			<div v-reveal="{ delay: 120 }" class="rounded-2xl border border-white/40 bg-white/50 p-6 shadow-lg shadow-slate-900/5 backdrop-blur-md">
-				<div class="text-sm font-semibold text-slate-900">Device → LPWAN → Backend → Web Dashboard</div>
-				<div class="mt-5 grid gap-3 sm:grid-cols-7 sm:items-center">
-					<div class="sm:col-span-2 rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
+				<div class="text-sm font-semibold text-slate-900">Device → Backend → Web Dashboard</div>
+				<div class="mt-5 grid gap-3 sm:grid-cols-3 sm:items-center">
+					<div class="rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
 						Device
 					</div>
-					<div class="hidden sm:flex justify-center text-slate-400">→</div>
-					<div class="sm:col-span-2 rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
-						LPWAN
-					</div>
-					<div class="hidden sm:flex justify-center text-slate-400">→</div>
-					<div class="sm:col-span-2 rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
+					<div class="rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
 						Backend
 					</div>
-					<div class="hidden sm:flex justify-center text-slate-400">→</div>
-					<div class="sm:col-span-2 rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
+					<div class="rounded-2xl border border-slate-200/60 bg-white/70 px-4 py-3 text-center text-sm font-medium text-slate-800">
 						Web Dashboard
 					</div>
 				</div>

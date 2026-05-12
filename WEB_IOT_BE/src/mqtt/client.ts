@@ -1,7 +1,6 @@
 import mqtt, { type MqttClient } from "mqtt";
 
 import { env } from "../env";
-import { handleLpwanUplink } from "../lpwan/uplink";
 import { saveTelemetryByDeviceUid } from "../telemetry/service";
 
 let client: MqttClient | null = null;
@@ -13,15 +12,6 @@ function parseUidFromTelemetryTopic(topic: string): string | null {
   if (parts[0] !== "iot") return null;
   if (parts[1] !== "devices") return null;
   if (parts[3] !== "telemetry") return null;
-  return parts[2] || null;
-}
-
-function parseDevEuiFromLpwanTopic(topic: string): string | null {
-  // Expected: lpwan/uplink/<devEui>
-  const parts = topic.split("/");
-  if (parts.length < 3) return null;
-  if (parts[0] !== "lpwan") return null;
-  if (parts[1] !== "uplink") return null;
   return parts[2] || null;
 }
 
@@ -40,7 +30,7 @@ export function startMqtt() {
   client.on("connect", () => {
     console.log("MQTT connected");
 
-    const topics = [env.MQTT_TELEMETRY_TOPIC, "lpwan/uplink/+"];
+    const topics = [env.MQTT_TELEMETRY_TOPIC];
 
     client?.subscribe(topics, (err) => {
       if (err) {
@@ -58,12 +48,6 @@ export function startMqtt() {
 
       const text = payload.toString("utf8");
       const body = JSON.parse(text);
-
-      const lpwanDevEui = parseDevEuiFromLpwanTopic(topic);
-      if (lpwanDevEui) {
-        await handleLpwanUplink(lpwanDevEui, body);
-        return;
-      }
 
       const uid = parseUidFromTelemetryTopic(topic);
       if (uid) {

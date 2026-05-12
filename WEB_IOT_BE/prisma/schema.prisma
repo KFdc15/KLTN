@@ -17,18 +17,6 @@ enum DeviceStatus {
 enum ConnectionType {
   WIFI
   WIRED
-  LPWAN
-}
-
-enum NetworkType {
-  LORAWAN
-  NB_IOT
-  LTE_M
-}
-
-enum DeviceJoinStatus {
-  UNCLAIMED
-  CLAIMED
 }
 
 model User {
@@ -51,23 +39,11 @@ model Device {
 
   // Basic metadata
   type  String @default("sensor")
-  model String @default("LPWAN-X1")
+  model String @default("WIFI-X1")
   name  String @default("")
 
   // Connection/network metadata
-  connectionType ConnectionType   @default(WIFI) @map("connection_type")
-  networkType    NetworkType?     @map("network_type")
-  joinStatus     DeviceJoinStatus @default(UNCLAIMED) @map("join_status")
-
-  // LoRaWAN-like identifiers and latest radio metadata
-  devEui              String?   @unique @map("dev_eui")
-  gatewayId           String?   @map("gateway_id")
-  lastJoinAt          DateTime? @map("last_join_at")
-  lastRssi            Float?    @map("last_rssi")
-  lastSnr             Float?    @map("last_snr")
-  lastSpreadingFactor Int?      @map("last_spreading_factor")
-  lastBatteryPct      Float?    @map("last_battery_pct")
-  lastUplinkCounter   Int?      @map("last_uplink_counter")
+  connectionType ConnectionType @default(WIFI) @map("connection_type")
 
   // Optional runtime state
   lightOn        Boolean? @map("light_on")
@@ -76,17 +52,17 @@ model Device {
   cameraFrameUrl String?  @map("camera_frame_url")
 
   status     DeviceStatus @default(OFFLINE)
+  telemetryBlocked Boolean @default(false) @map("telemetry_blocked")
   lastSeenAt DateTime?    @map("last_seen_at")
   createdAt  DateTime     @default(now()) @map("created_at")
   updatedAt  DateTime     @updatedAt @map("updated_at")
 
   user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   telemetry Telemetry[]
+  controlOverride DeviceControlOverride?
 
   @@index([userId])
   @@index([connectionType])
-  @@index([networkType])
-  @@index([joinStatus])
   @@map("devices")
 }
 
@@ -98,15 +74,31 @@ model Telemetry {
   humidityPct  Float    @map("humidity_pct")
   signalDbm    Float?   @map("signal_dbm")
 
-  // LoRaWAN-like uplink metadata
-  rssi            Float? @map("rssi")
-  snr             Float? @map("snr")
-  spreadingFactor Int?   @map("spreading_factor")
-  batteryPct      Float? @map("battery_pct")
-  uplinkCounter   Int?   @map("uplink_counter")
-
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
 
   @@index([deviceId, ts])
   @@map("telemetry")
+}
+
+model DeviceControlTemplate {
+  id         String   @id @default(uuid()) @db.Uuid
+  deviceType String   @unique @map("device_type")
+  config     Json     @map("config")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@map("device_control_templates")
+}
+
+model DeviceControlOverride {
+  id        String   @id @default(uuid()) @db.Uuid
+  deviceId  String   @unique @db.Uuid @map("device_id")
+  config    Json     @map("config")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@map("device_control_overrides")
 }

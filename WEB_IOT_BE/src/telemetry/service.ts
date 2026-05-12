@@ -83,9 +83,10 @@ export async function saveTelemetryByDeviceId(
     const result = await prisma.$transaction(async (tx) => {
       const device = await tx.device.findUnique({
         where: { id: deviceId },
-        select: { id: true, userId: true },
+        select: { id: true, userId: true, telemetryBlocked: true },
       });
       if (!device) return null;
+      if (device.telemetryBlocked) return null;
 
       const created = await tx.telemetry.create({
         data: {

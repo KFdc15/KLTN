@@ -14,7 +14,7 @@ import {
 } from '@heroicons/vue/24/outline'
 
 import DeviceCard from './DeviceCard.vue'
-import { useDeviceStore, type Device } from '../../store/deviceStore'
+import { useDeviceStore, type ControlConfig, type Device } from '../../store/deviceStore'
 
 const store = useDeviceStore()
 
@@ -105,6 +105,33 @@ function iconForDevice(deviceType: string) {
 		default:
 			return CpuChipIcon
 	}
+}
+
+function defaultControlConfig(deviceType: string): ControlConfig {
+	const base: ControlConfig = {
+		lightToggle: false,
+		acToggle: false,
+		acTargetTemp: false,
+	}
+	const type = canonicalType(deviceType)
+	if (type === 'Light') return { ...base, lightToggle: true }
+	if (type === 'Air Conditioner') {
+		return { ...base, acToggle: true, acTargetTemp: true }
+	}
+	return base
+}
+
+function controlConfigFor(d: Device): ControlConfig {
+	return d.controlConfig ?? defaultControlConfig(d.type)
+}
+
+function showLightControl(d: Device) {
+	return controlConfigFor(d).lightToggle
+}
+
+function showAcControl(d: Device) {
+	const cfg = controlConfigFor(d)
+	return cfg.acToggle || cfg.acTargetTemp
 }
 
 function acDraftValue(d: Device) {
@@ -294,7 +321,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 						</div>
 					</div>
 
-					<div v-if="canonicalType(d.type) === 'Light'" class="mt-4 rounded-xl bg-gray-50 px-3 py-3">
+					<div v-if="canonicalType(d.type) === 'Light' && showLightControl(d)" class="mt-4 rounded-xl bg-gray-50 px-3 py-3">
 						<div class="flex items-center justify-between gap-3">
 							<p class="text-xs font-medium text-gray-600">Light</p>
 							<span
@@ -318,7 +345,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 						<p v-if="d.status === 'OFFLINE'" class="mt-2 text-[11px] text-gray-500">Device is offline.</p>
 					</div>
 
-					<div v-else-if="canonicalType(d.type) === 'Air Conditioner'" class="mt-4 rounded-xl bg-gray-50 px-3 py-3">
+					<div v-else-if="canonicalType(d.type) === 'Air Conditioner' && showAcControl(d)" class="mt-4 rounded-xl bg-gray-50 px-3 py-3">
 						<div class="flex items-center justify-between gap-3">
 							<p class="text-xs font-medium text-gray-600">Air Conditioner</p>
 							<span
@@ -329,7 +356,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 							</span>
 						</div>
 
-						<div class="mt-3">
+						<div v-if="controlConfigFor(d).acToggle" class="mt-3">
 							<button
 								type="button"
 								class="inline-flex w-full items-center justify-center rounded-xl bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
@@ -340,7 +367,7 @@ function metricsForDevice(deviceType: string, telemetry: { temperatureC: number;
 							</button>
 						</div>
 
-						<div class="mt-3">
+						<div v-if="controlConfigFor(d).acTargetTemp" class="mt-3">
 							<div class="flex items-center justify-between gap-3">
 								<p class="text-[11px] font-medium text-gray-500">Target temperature</p>
 								<p class="text-xs font-semibold text-gray-900">{{ Math.round(acDraftValue(d)) }}°C</p>

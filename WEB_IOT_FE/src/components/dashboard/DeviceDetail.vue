@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 
 import Chart from 'chart.js/auto'
 
-import { useDeviceStore, type CameraFramePoint, type Device, type RuntimePoint, type TelemetryPoint } from '../../store/deviceStore'
+import { useDeviceStore, type CameraFramePoint, type ControlConfig, type Device, type RuntimePoint, type TelemetryPoint } from '../../store/deviceStore'
 
 const store = useDeviceStore()
 const route = useRoute()
@@ -13,10 +13,14 @@ const router = useRouter()
 const deviceId = computed(() => String(route.params.id ?? ''))
 
 const loading = ref(false)
+const busyAction = ref(false)
+const busyControl = ref(false)
 
 const device = computed<Device | null>(() => {
 	return store.devices.find((d) => d.id === deviceId.value) ?? null
 })
+
+const isBlocked = computed(() => device.value?.telemetryBlocked ?? false)
 
 function connectionLabel(deviceUid: string | undefined, model: string | undefined) {
 	const uid = (deviceUid ?? '').toLowerCase()
@@ -33,6 +37,42 @@ const lastActivityLabel = computed(() => {
 	return store.getLastUpdateLabel(device.value)
 })
 
+function defaultControlConfig(deviceType: string | undefined): ControlConfig {
+	const base: ControlConfig = {
+		lightToggle: false,
+		acToggle: false,
+		acTargetTemp: false,
+	}
+	const type = (deviceType ?? '').toLowerCase()
+	if (type.includes('light')) return { ...base, lightToggle: true }
+	if (type.includes('air') || type.includes('ac')) {
+		return { ...base, acToggle: true, acTargetTemp: true }
+	}
+	return base
+}
+
+const controlConfig = computed<ControlConfig>(() => {
+	if (!device.value) return defaultControlConfig('')
+	return device.value.controlConfig ?? defaultControlConfig(device.value.type)
+})
+
+async function updateControlConfig(patch: Partial<ControlConfig>) {
+	if (!device.value) return
+	if (busyControl.value) return
+	busyControl.value = true
+	try {
+		await store.updateDeviceControlConfig({ id: device.value.id, patch })
+	} finally {
+		busyControl.value = false
+	}
+}
+
+function onControlToggle(key: keyof ControlConfig, e: Event) {
+	const el = e.target as HTMLInputElement | null
+	if (!el) return
+	void updateControlConfig({ [key]: el.checked } as Partial<ControlConfig>)
+}
+
 const powerW = computed(() => {
 	const d = device.value
 	if (!d) return null
@@ -46,8 +86,6 @@ const powerW = computed(() => {
 	// Seeded/demo devices: provide stable estimated power per device
 	if (uid === 'WIFI_001') return 0.8
 	if (uid === 'CAMERA_ETH_001') return 6
-	if (uid === 'LPWAN_001') return 0.2
-	if (uid.startsWith('LPWAN_')) return 0.2
 
 	// Fallbacks by type
 	if (type.includes('camera') || type.includes('cam')) return 6
@@ -74,6 +112,9 @@ const deviceKind = computed<DeviceKind>(() => {
 	if (s.includes('temp') || s.includes('thermo')) return 'temperature'
 	return 'generic'
 })
+
+const isLightType = computed(() => deviceKind.value === 'light')
+const isAcType = computed(() => deviceKind.value === 'ac')
 
 const windowPoints = computed<TelemetryPoint[]>(() => {
 	if (!device.value) return []
@@ -214,6 +255,28 @@ function fmtNumber(v: number | null | undefined, digits = 2) {
 
 function backToDevices() {
 	router.push('/app/devices')
+}
+
+async function onDisconnectDevice() {
+	if (!device.value || busyAction.value) return
+	const ok = window.confirm('Disconnect this device and block telemetry?')
+	if (!ok) return
+	busyAction.value = true
+	try {
+		await store.disconnectDevice({ id: device.value.id })
+	} finally {
+		busyAction.value = false
+	}
+}
+
+async function onReconnectDevice() {
+	if (!device.value || busyAction.value) return
+	busyAction.value = true
+	try {
+		await store.reconnectDevice({ id: device.value.id })
+	} finally {
+		busyAction.value = false
+	}
 }
 
 const chartEl = ref<HTMLCanvasElement | null>(null)
@@ -470,6 +533,24 @@ onBeforeUnmount(() => {
 					>
 						{{ statusLabel(device.status) }}
 					</span>
+					<button
+						v-if="!isBlocked"
+						type="button"
+						:disabled="busyAction"
+						class="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm transition enabled:hover:border-red-300 enabled:hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+						@click="onDisconnectDevice"
+					>
+						Emergency disconnect
+					</button>
+					<button
+						v-else
+						type="button"
+						:disabled="busyAction"
+						class="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 shadow-sm transition enabled:hover:border-emerald-300 enabled:hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+						@click="onReconnectDevice"
+					>
+						Enable device
+					</button>
 				</div>
 			</div>
 
@@ -497,6 +578,64 @@ onBeforeUnmount(() => {
 					<p class="text-sm text-gray-500">Connection</p>
 					<p class="mt-2 text-base font-semibold text-gray-900">{{ connection }}</p>
 					<p class="mt-1 text-sm text-gray-500">UID: {{ device.deviceUid ?? '—' }}</p>
+				</div>
+			</div>
+
+			<div class="rounded-2xl bg-white p-6 shadow-sm">
+				<div class="flex items-start justify-between gap-3">
+					<div>
+						<h3 class="text-base font-semibold text-gray-900">Control visibility</h3>
+						<p class="mt-1 text-sm text-gray-500">Choose which controls are shown for this device.</p>
+					</div>
+					<p class="text-xs text-gray-400">Applies to dashboard controls</p>
+				</div>
+
+				<div class="mt-4 space-y-3">
+					<div v-if="isLightType" class="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+						<div>
+							<p class="text-sm font-semibold text-gray-900">Light toggle</p>
+							<p class="mt-0.5 text-xs text-gray-500">Show the ON/OFF control.</p>
+						</div>
+						<input
+							type="checkbox"
+							:checked="controlConfig.lightToggle"
+							:disabled="busyControl"
+							class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+							@change="onControlToggle('lightToggle', $event)"
+						/>
+					</div>
+
+					<div v-if="isAcType" class="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+						<div>
+							<p class="text-sm font-semibold text-gray-900">Air conditioner power</p>
+							<p class="mt-0.5 text-xs text-gray-500">Show the ON/OFF button.</p>
+						</div>
+						<input
+							type="checkbox"
+							:checked="controlConfig.acToggle"
+							:disabled="busyControl"
+							class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+							@change="onControlToggle('acToggle', $event)"
+						/>
+					</div>
+
+					<div v-if="isAcType" class="flex items-center justify-between rounded-xl bg-gray-50 px-4 py-3">
+						<div>
+							<p class="text-sm font-semibold text-gray-900">Target temperature</p>
+							<p class="mt-0.5 text-xs text-gray-500">Show the temperature slider.</p>
+						</div>
+						<input
+							type="checkbox"
+							:checked="controlConfig.acTargetTemp"
+							:disabled="busyControl"
+							class="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:cursor-not-allowed"
+							@change="onControlToggle('acTargetTemp', $event)"
+						/>
+					</div>
+
+					<p v-if="!isLightType && !isAcType" class="text-sm text-gray-500">
+						No interactive controls for this device type.
+					</p>
 				</div>
 			</div>
 
