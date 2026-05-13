@@ -33,6 +33,9 @@ async function main() {
       type: "Humidity",
       model: "WIFI-H1",
       connectionType: ConnectionType.WIFI,
+      ipAddress: "192.168.10.21",
+      latitude: 10.7769,
+      longitude: 106.7009,
     },
     {
       deviceUid: "TEMP_WIFI_001",
@@ -41,6 +44,9 @@ async function main() {
       type: "Temperature",
       model: "WIFI-T1",
       connectionType: ConnectionType.WIFI,
+      ipAddress: "192.168.10.22",
+      latitude: 10.7723,
+      longitude: 106.6572,
     },
     {
       deviceUid: "CAMERA_ETH_001",
@@ -49,6 +55,9 @@ async function main() {
       type: "Camera",
       model: "CAM-X1",
       connectionType: ConnectionType.WIRED,
+      ipAddress: "192.168.10.30",
+      latitude: 10.7959,
+      longitude: 106.7219,
     },
     {
       deviceUid: "LIGHT_ETH_001",
@@ -58,6 +67,9 @@ async function main() {
       model: "LIGHT-X1",
       connectionType: ConnectionType.WIRED,
       lightOn: false,
+      ipAddress: "192.168.10.31",
+      latitude: 10.8231,
+      longitude: 106.6297,
     },
     {
       deviceUid: "WIFI_AC_001",
@@ -68,6 +80,9 @@ async function main() {
       connectionType: ConnectionType.WIFI,
       acOn: false,
       acTargetTempC: 24,
+      ipAddress: "192.168.10.40",
+      latitude: 10.7626,
+      longitude: 106.6602,
     },
   ] as const;
 
@@ -102,6 +117,9 @@ async function main() {
         model: d.model,
         connectionType: d.connectionType,
         type: d.type,
+        ipAddress: "ipAddress" in d ? d.ipAddress : null,
+        latitude: "latitude" in d ? d.latitude : null,
+        longitude: "longitude" in d ? d.longitude : null,
         // Không reset userId/name/status để seed an toàn khi demo.
       },
       create: {
@@ -114,6 +132,9 @@ async function main() {
         type: d.type,
         model: d.model,
         connectionType: d.connectionType,
+        ipAddress: "ipAddress" in d ? d.ipAddress : null,
+        latitude: "latitude" in d ? d.latitude : null,
+        longitude: "longitude" in d ? d.longitude : null,
         lightOn: "lightOn" in d ? d.lightOn : null,
         acOn: "acOn" in d ? d.acOn : null,
         acTargetTempC: "acTargetTempC" in d ? d.acTargetTempC : null,

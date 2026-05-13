@@ -45,6 +45,9 @@ model Device {
 
   // Connection/network metadata
   connectionType ConnectionType @default(WIFI) @map("connection_type")
+  ipAddress      String? @map("ip_address")
+  latitude       Float?  @map("latitude")
+  longitude      Float?  @map("longitude")
 
   // Optional runtime state
   lightOn        Boolean? @map("light_on")

@@ -559,7 +559,7 @@ onBeforeUnmount(() => {
 				</div>
 			</div>
 
-			<div class="grid grid-cols-1 gap-4 lg:grid-cols-5">
+			<div class="grid grid-cols-1 gap-4 lg:grid-cols-6">
 				<div class="rounded-2xl bg-white p-5 shadow-sm">
 					<p class="text-sm text-gray-500">Status</p>
 					<p class="mt-2 text-xl font-semibold text-gray-900">{{ statusLabel(device.status) }}</p>
@@ -583,6 +583,16 @@ onBeforeUnmount(() => {
 					<p class="text-sm text-gray-500">Connection</p>
 					<p class="mt-2 text-base font-semibold text-gray-900">{{ connection }}</p>
 					<p class="mt-1 text-sm text-gray-500">UID: {{ device.deviceUid ?? '—' }}</p>
+				</div>
+				<div class="rounded-2xl bg-white p-5 shadow-sm">
+					<p class="text-sm text-gray-500">Address</p>
+					<p class="mt-2 text-base font-semibold text-gray-900">IP: {{ device.ipAddress ?? '—' }}</p>
+					<p class="mt-1 text-sm text-gray-500">
+						Lat: {{ typeof device.latitude === 'number' ? device.latitude : '—' }}
+					</p>
+					<p class="mt-1 text-sm text-gray-500">
+						Lng: {{ typeof device.longitude === 'number' ? device.longitude : '—' }}
+					</p>
 				</div>
 			</div>
 

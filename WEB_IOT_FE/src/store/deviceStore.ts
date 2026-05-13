@@ -41,6 +41,9 @@ export type Device = {
   type: string;
   model?: string;
   connectionType?: ConnectionType;
+  ipAddress?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   status: DeviceStatus;
   telemetryBlocked?: boolean;
   controlConfig?: ControlConfig;
@@ -78,6 +81,9 @@ type TelemetryNewEvent = {
   temperatureC: number;
   humidityPct: number;
   signalDbm?: number | null;
+  ipAddress?: string;
+  latitude?: number;
+  longitude?: number;
 };
 
 type DeviceRuntimeEvent = {
@@ -331,6 +337,15 @@ export const useDeviceStore = defineStore("device", {
         };
         device.latestTelemetry = point;
         device.lastSeenAt = payload.ts;
+        if (typeof payload.ipAddress === "string") {
+          device.ipAddress = payload.ipAddress;
+        }
+        if (typeof payload.latitude === "number" && Number.isFinite(payload.latitude)) {
+          device.latitude = payload.latitude;
+        }
+        if (typeof payload.longitude === "number" && Number.isFinite(payload.longitude)) {
+          device.longitude = payload.longitude;
+        }
 
         const window = this.telemetryWindowByDeviceId[payload.deviceId] ?? [];
         window.push(point);

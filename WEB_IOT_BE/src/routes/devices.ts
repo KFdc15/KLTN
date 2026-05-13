@@ -81,6 +81,9 @@ const baseDeviceSelect = {
   model: true,
 
   connectionType: true,
+  ipAddress: true,
+  latitude: true,
+  longitude: true,
 
   lightOn: true,
   acOn: true,

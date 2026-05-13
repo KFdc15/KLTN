@@ -49,6 +49,10 @@ function parseTelemetryInput(raw: unknown): TelemetryInput {
   };
 }
 
+function clampRange(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 function computeOnlineOrWarning(t: {
   temperatureC: number;
   humidityPct: number;
@@ -70,6 +74,28 @@ export async function saveTelemetryByDeviceId(
   const acTargetTempC = isFiniteNumber(body.acTargetTempC)
     ? body.acTargetTempC
     : undefined;
+  const ipAddress =
+    typeof body.ipAddress === "string"
+      ? body.ipAddress
+      : typeof body.ip === "string"
+        ? body.ip
+        : undefined;
+  const latitudeRaw = isFiniteNumber(body.latitude)
+    ? body.latitude
+    : isFiniteNumber(body.lat)
+      ? body.lat
+      : undefined;
+  const longitudeRaw = isFiniteNumber(body.longitude)
+    ? body.longitude
+    : isFiniteNumber(body.lng)
+      ? body.lng
+      : isFiniteNumber(body.lon)
+        ? body.lon
+        : undefined;
+  const latitude =
+    latitudeRaw !== undefined ? clampRange(latitudeRaw, -90, 90) : undefined;
+  const longitude =
+    longitudeRaw !== undefined ? clampRange(longitudeRaw, -180, 180) : undefined;
   const cameraFrame =
     typeof body.cameraFrame === "string" ? body.cameraFrame : undefined;
   const cameraFrameUrl =
@@ -110,6 +136,9 @@ export async function saveTelemetryByDeviceId(
         data: {
           lastSeenAt: ts,
           status,
+          ...(ipAddress !== undefined ? { ipAddress } : {}),
+          ...(latitude !== undefined ? { latitude } : {}),
+          ...(longitude !== undefined ? { longitude } : {}),
           ...(lightOn !== undefined ? { lightOn } : {}),
           ...(acOn !== undefined ? { acOn } : {}),
           ...(acTargetTempC !== undefined
@@ -135,6 +164,9 @@ export async function saveTelemetryByDeviceId(
         temperatureC: result.telemetry.temperatureC,
         humidityPct: result.telemetry.humidityPct,
         signalDbm: result.telemetry.signalDbm,
+        ...(ipAddress !== undefined ? { ipAddress } : {}),
+        ...(latitude !== undefined ? { latitude } : {}),
+        ...(longitude !== undefined ? { longitude } : {}),
       });
 
       io?.to(room).emit("device:status", {
