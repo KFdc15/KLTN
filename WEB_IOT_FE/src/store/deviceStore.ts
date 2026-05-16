@@ -153,9 +153,9 @@ let socket: Socket | null = null;
 let relativeTimeTimer: number | null = null;
 
 function formatAlertMetric(metric: "temperature" | "humidity" | "signal") {
-  if (metric === "temperature") return "temperature";
-  if (metric === "humidity") return "humidity";
-  return "signal";
+  if (metric === "temperature") return "Temperature";
+  if (metric === "humidity") return "Humidity";
+  return "Signal";
 }
 
 function formatAlertUnit(metric: "temperature" | "humidity" | "signal") {
@@ -168,6 +168,26 @@ function formatAlertNumber(value: number) {
   return Number.isInteger(value) ? `${value}` : value.toFixed(2);
 }
 
+function formatAlertReason(alert: NonNullable<DeviceStatusEvent["alert"]>) {
+  const metric = formatAlertMetric(alert.metric);
+  const unit = formatAlertUnit(alert.metric);
+  const value = `${formatAlertNumber(alert.value)} ${unit}`;
+  const threshold = `${formatAlertNumber(alert.threshold)} ${unit}`;
+  const direction = alert.operator === ">=" ? "at or above" : "at or below";
+  return `${metric} is ${value}, ${direction} alert threshold ${threshold}.`;
+}
+
+function warningKey(payload: DeviceStatusEvent) {
+  const alert = payload.alert;
+  if (!alert) return `${payload.deviceId}:warning`;
+  return [
+    payload.deviceId,
+    alert.metric,
+    alert.operator,
+    alert.threshold,
+  ].join(":");
+}
+
 export const useDeviceStore = defineStore("device", {
   state: () => {
     return {
@@ -176,6 +196,8 @@ export const useDeviceStore = defineStore("device", {
       runtimeWindowByDeviceId: {} as Record<string, RuntimePoint[]>,
       cameraFrameWindowByDeviceId: {} as Record<string, CameraFramePoint[]>,
       pendingRuntimeByDeviceId: {} as Record<string, PendingRuntime>,
+      lastWarningKeyByDeviceId: {} as Record<string, string>,
+      unreadNotificationById: {} as Record<string, boolean>,
       notifications: [] as DeviceNotification[],
       relativeTimeTick: 0,
       loading: false,
@@ -212,7 +234,18 @@ export const useDeviceStore = defineStore("device", {
           : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
       const ts = input.ts ?? new Date().toISOString();
       const next: DeviceNotification = { id, ts, ...input };
+      this.unreadNotificationById[id] = true;
       this.notifications = [next, ...this.notifications].slice(0, 20);
+
+      const liveIds = new Set(this.notifications.map((n) => n.id));
+      for (const notificationId of Object.keys(this.unreadNotificationById)) {
+        if (!liveIds.has(notificationId)) {
+          delete this.unreadNotificationById[notificationId];
+        }
+      }
+    },
+    markNotificationsRead() {
+      this.unreadNotificationById = {};
     },
     setPendingRuntime(deviceId: string, patch: Partial<PendingRuntime>) {
       const prev = this.pendingRuntimeByDeviceId[deviceId] ?? {};
@@ -398,19 +431,31 @@ export const useDeviceStore = defineStore("device", {
       const prevStatus = device.status;
       device.status = payload.status;
       device.lastSeenAt = payload.lastSeenAt;
-      if (payload.status === "WARNING" && prevStatus !== "WARNING") {
-        const label = (device.name ?? "").trim() || device.type;
-        const alertText = payload.alert
-          ? `Device alert at ${formatAlertMetric(payload.alert.metric)} ${formatAlertNumber(payload.alert.value)} ${formatAlertUnit(payload.alert.metric)}.`
-          : `${label} entered WARNING state.`;
-        this.pushNotification({
-          kind: "device-warning",
-          deviceId: device.id,
-          title: "Device warning",
-          message: payload.alert ? `${label}: ${alertText}` : alertText,
-          ts: payload.lastSeenAt ?? new Date().toISOString(),
-        });
+      if (payload.status !== "WARNING") {
+        delete this.lastWarningKeyByDeviceId[payload.deviceId];
+        return;
       }
+
+      const key = warningKey(payload);
+      if (
+        prevStatus === "WARNING" &&
+        this.lastWarningKeyByDeviceId[payload.deviceId] === key
+      ) {
+        return;
+      }
+      this.lastWarningKeyByDeviceId[payload.deviceId] = key;
+
+      const label = (device.name ?? "").trim() || device.type;
+      const reason = payload.alert
+        ? formatAlertReason(payload.alert)
+        : "Device entered WARNING state.";
+      this.pushNotification({
+        kind: "device-warning",
+        deviceId: device.id,
+        title: `${label} warning`,
+        message: reason,
+        ts: payload.lastSeenAt ?? new Date().toISOString(),
+      });
     },
     applyRuntime(payload: DeviceRuntimeEvent) {
       const device = this.devices.find((d) => d.id === payload.deviceId);

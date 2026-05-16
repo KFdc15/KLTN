@@ -50,6 +50,9 @@ function toggleUserMenu() {
 function toggleNotifications() {
 	isUserMenuOpen.value = false
 	isNotificationsOpen.value = !isNotificationsOpen.value
+	if (isNotificationsOpen.value) {
+		devices.markNotificationsRead()
+	}
 }
 
 const notifications = computed(() => {
@@ -57,8 +60,13 @@ const notifications = computed(() => {
 	return devices.notifications.map((n) => ({
 		...n,
 		relative: formatRelativeTime(n.ts),
+		absolute: new Date(n.ts).toLocaleString(),
 	}))
 })
+
+const unreadWarningNotificationCount = computed(() =>
+	devices.notifications.filter((n) => n.kind === 'device-warning' && devices.unreadNotificationById[n.id]).length,
+)
 
 function onGlobalPointerDown(e: PointerEvent) {
 	const target = e.target
@@ -109,12 +117,18 @@ function logout() {
 				<div class="relative" data-notifications>
 					<button
 						type="button"
-						class="inline-flex items-center rounded-xl p-2 text-gray-700 transition hover:bg-white hover:shadow-sm"
+						class="relative inline-flex items-center rounded-xl p-2 text-gray-700 transition hover:bg-white hover:shadow-sm"
 						aria-label="Notifications"
 						@pointerdown.stop
 						@click.stop="toggleNotifications"
 					>
 						<BellIcon class="h-6 w-6" />
+						<span
+							v-if="unreadWarningNotificationCount"
+							class="absolute -right-0.5 -top-0.5 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold text-white ring-2 ring-gray-100"
+						>
+							{{ unreadWarningNotificationCount > 9 ? '9+' : unreadWarningNotificationCount }}
+						</span>
 					</button>
 
 					<div
@@ -125,6 +139,9 @@ function logout() {
 					>
 						<div class="px-4 py-3">
 							<p class="text-sm font-semibold text-gray-900">Device notifications</p>
+							<p v-if="unreadWarningNotificationCount" class="mt-0.5 text-xs text-red-600">
+								{{ unreadWarningNotificationCount }} unread warning notification{{ unreadWarningNotificationCount > 1 ? 's' : '' }}
+							</p>
 						</div>
 						<div class="max-h-80 overflow-auto border-t border-gray-100">
 							<div v-if="notifications.length === 0" class="px-4 py-4 text-sm text-gray-600">
@@ -136,9 +153,17 @@ function logout() {
 									:key="n.id"
 									class="px-4 py-3 transition hover:bg-gray-50"
 								>
-									<p class="text-sm font-semibold text-gray-900">{{ n.title }}</p>
+									<div class="flex items-start justify-between gap-3">
+										<p class="text-sm font-semibold text-gray-900">{{ n.title }}</p>
+										<span
+											v-if="n.kind === 'device-warning'"
+											class="shrink-0 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700"
+										>
+											WARNING
+										</span>
+									</div>
 									<p v-if="n.message" class="mt-0.5 text-sm text-gray-600">{{ n.message }}</p>
-									<p class="mt-1 text-xs text-gray-500">{{ n.relative }}</p>
+									<p class="mt-1 text-xs text-gray-500">{{ n.relative }} - {{ n.absolute }}</p>
 								</div>
 							</div>
 						</div>
