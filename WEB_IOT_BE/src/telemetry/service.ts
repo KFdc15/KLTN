@@ -2,6 +2,12 @@ import { DeviceStatus, Prisma } from "@prisma/client";
 
 import { prisma } from "../db/prisma";
 import { getIO, userRoom } from "../realtime/io";
+import {
+  filterAlertRulesForType,
+  getTelemetryAlert,
+  resolveAlertRules,
+  rulesFromRecord,
+} from "../devices/alertRules";
 
 export type TelemetryInput = {
   ts?: Date;
@@ -53,20 +59,12 @@ function clampRange(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function computeOnlineOrWarning(t: {
-  temperatureC: number;
-  humidityPct: number;
-}): DeviceStatus {
-  return t.temperatureC > 35 ? DeviceStatus.WARNING : DeviceStatus.ONLINE;
-}
-
 export async function saveTelemetryByDeviceId(
   deviceId: string,
   rawTelemetry: unknown,
 ) {
   const telemetry = parseTelemetryInput(rawTelemetry);
   const ts = telemetry.ts ?? new Date();
-  const status = computeOnlineOrWarning(telemetry);
 
   const body = (rawTelemetry ?? {}) as Record<string, unknown>;
   const lightOn = typeof body.lightOn === "boolean" ? body.lightOn : undefined;
@@ -109,10 +107,33 @@ export async function saveTelemetryByDeviceId(
     const result = await prisma.$transaction(async (tx) => {
       const device = await tx.device.findUnique({
         where: { id: deviceId },
-        select: { id: true, userId: true, telemetryBlocked: true },
+        select: { id: true, userId: true, telemetryBlocked: true, type: true },
       });
       if (!device) return null;
       if (device.telemetryBlocked) return null;
+
+      const rule = await tx.deviceAlertRule.findUnique({
+        where: { deviceId },
+        select: {
+          temperatureMin: true,
+          temperatureMax: true,
+          humidityMin: true,
+          humidityMax: true,
+          signalMin: true,
+          signalMax: true,
+        },
+      });
+      const overrideRules = filterAlertRulesForType(
+        device.type,
+        rulesFromRecord(rule ?? null),
+      );
+      const resolvedRules = resolveAlertRules(device.type, overrideRules);
+      const alert = getTelemetryAlert(resolvedRules, {
+        temperatureC: telemetry.temperatureC,
+        humidityPct: telemetry.humidityPct,
+        signalDbm: telemetry.signalDbm ?? null,
+      });
+      const status = alert ? DeviceStatus.WARNING : DeviceStatus.ONLINE;
 
       const created = await tx.telemetry.create({
         data: {
@@ -149,7 +170,7 @@ export async function saveTelemetryByDeviceId(
         select: { id: true },
       });
 
-      return { device, telemetry: created, status, lastSeenAt: ts };
+      return { device, telemetry: created, status, lastSeenAt: ts, alert };
     });
 
     if (!result) return null;
@@ -173,6 +194,7 @@ export async function saveTelemetryByDeviceId(
         deviceId: result.telemetry.deviceId,
         status: result.status,
         lastSeenAt: result.lastSeenAt,
+        alert: result.alert,
       });
 
       if (

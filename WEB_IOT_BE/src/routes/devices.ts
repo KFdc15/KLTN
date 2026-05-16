@@ -5,6 +5,16 @@ import { prisma } from "../db/prisma";
 import { requireAuth } from "../middleware/requireAuth";
 import { publishDeviceCommand } from "../mqtt/client";
 import { getIO, userRoom } from "../realtime/io";
+import {
+  capabilitiesForType,
+  defaultAlertRulesForType,
+  filterAlertRulesForType,
+  getTelemetryAlert,
+  normalizeAlertRules,
+  recordFromRules,
+  resolveAlertRules,
+  rulesFromRecord,
+} from "../devices/alertRules";
 
 type DiscoverMethod = "wired" | "wifi";
 
@@ -103,6 +113,70 @@ const telemetrySelect = {
   humidityPct: true,
   signalDbm: true,
 } as const;
+
+async function refreshCurrentAlertStatus(deviceId: string) {
+  const device = await prisma.device.findUnique({
+    where: { id: deviceId },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      telemetryBlocked: true,
+      lastSeenAt: true,
+    },
+  });
+  if (!device) return null;
+  if (device.telemetryBlocked || device.status === DeviceStatus.DISCONNECTED) {
+    return { ...device, alert: null };
+  }
+  if (device.status === DeviceStatus.OFFLINE) return { ...device, alert: null };
+
+  const latestTelemetry = await prisma.telemetry.findFirst({
+    where: { deviceId },
+    orderBy: { ts: "desc" },
+    select: telemetrySelect,
+  });
+  if (!latestTelemetry) return { ...device, alert: null };
+
+  const rule = await prisma.deviceAlertRule.findUnique({
+    where: { deviceId },
+    select: {
+      temperatureMin: true,
+      temperatureMax: true,
+      humidityMin: true,
+      humidityMax: true,
+      signalMin: true,
+      signalMax: true,
+    },
+  });
+
+  const override = filterAlertRulesForType(
+    device.type,
+    rulesFromRecord(rule ?? null),
+  );
+  const resolved = resolveAlertRules(device.type, override);
+  const alert = getTelemetryAlert(resolved, {
+    temperatureC: latestTelemetry.temperatureC,
+    humidityPct: latestTelemetry.humidityPct,
+    signalDbm: latestTelemetry.signalDbm ?? null,
+  });
+  const nextStatus = alert ? DeviceStatus.WARNING : DeviceStatus.ONLINE;
+
+  if (nextStatus === device.status) return { ...device, alert };
+
+  const updated = await prisma.device.update({
+    where: { id: device.id },
+    data: { status: nextStatus },
+    select: {
+      id: true,
+      type: true,
+      status: true,
+      telemetryBlocked: true,
+      lastSeenAt: true,
+    },
+  });
+  return { ...updated, alert };
+}
 
 export const devicesRouter = Router();
 
@@ -210,6 +284,105 @@ devicesRouter.get("/:id/control-config", async (req, res) => {
     override: normalizeControlConfig(override?.config),
     resolved: resolveControlConfig(template?.config, override?.config),
   });
+});
+
+devicesRouter.get("/:id/alert-rules", async (req, res) => {
+  const userId = req.user!.id;
+  const id = req.params.id;
+
+  const device = await prisma.device.findFirst({
+    where: { id, userId },
+    select: { id: true, type: true },
+  });
+
+  if (!device) return res.status(404).json({ error: "Device not found" });
+
+  const rule = await prisma.deviceAlertRule.findUnique({
+    where: { deviceId: device.id },
+    select: {
+      temperatureMin: true,
+      temperatureMax: true,
+      humidityMin: true,
+      humidityMax: true,
+      signalMin: true,
+      signalMax: true,
+    },
+  });
+
+  const override = filterAlertRulesForType(
+    device.type,
+    rulesFromRecord(rule ?? null),
+  );
+  const defaults = defaultAlertRulesForType(device.type);
+  const resolved = resolveAlertRules(device.type, override);
+  const capabilities = capabilitiesForType(device.type);
+
+  return res.json({ override, defaults, resolved, capabilities });
+});
+
+devicesRouter.put("/:id/alert-rules", async (req, res) => {
+  const userId = req.user!.id;
+  const id = req.params.id;
+
+  const device = await prisma.device.findFirst({
+    where: { id, userId },
+    select: { id: true, type: true },
+  });
+
+  if (!device) return res.status(404).json({ error: "Device not found" });
+
+  const input = filterAlertRulesForType(
+    device.type,
+    normalizeAlertRules(req.body ?? {}),
+  );
+  const hasAny = Object.keys(input).length > 0;
+  if (!hasAny) {
+    await prisma.deviceAlertRule.deleteMany({
+      where: { deviceId: device.id },
+    });
+  } else {
+    const data = recordFromRules(input);
+    await prisma.deviceAlertRule.upsert({
+      where: { deviceId: device.id },
+      update: data,
+      create: {
+        deviceId: device.id,
+        ...data,
+      },
+    });
+  }
+
+  const rule = await prisma.deviceAlertRule.findUnique({
+    where: { deviceId: device.id },
+    select: {
+      temperatureMin: true,
+      temperatureMax: true,
+      humidityMin: true,
+      humidityMax: true,
+      signalMin: true,
+      signalMax: true,
+    },
+  });
+
+  const override = filterAlertRulesForType(
+    device.type,
+    rulesFromRecord(rule ?? null),
+  );
+  const defaults = defaultAlertRulesForType(device.type);
+  const resolved = resolveAlertRules(device.type, override);
+  const capabilities = capabilitiesForType(device.type);
+
+  const statusDevice = await refreshCurrentAlertStatus(device.id);
+  if (statusDevice?.status) {
+    getIO()?.to(userRoom(userId)).emit("device:status", {
+      deviceId: device.id,
+      status: statusDevice.status,
+      lastSeenAt: statusDevice.lastSeenAt,
+      alert: statusDevice.alert,
+    });
+  }
+
+  return res.json({ override, defaults, resolved, capabilities });
 });
 
 devicesRouter.put("/:id/control-config", async (req, res) => {
@@ -466,6 +639,18 @@ devicesRouter.patch("/:id", async (req, res) => {
     return res.status(404).json({ error: "Device not found" });
   }
 
+  if (type) {
+    const statusDevice = await refreshCurrentAlertStatus(id);
+    if (statusDevice?.status) {
+      getIO()?.to(userRoom(userId)).emit("device:status", {
+        deviceId: id,
+        status: statusDevice.status,
+        lastSeenAt: statusDevice.lastSeenAt,
+        alert: statusDevice.alert,
+      });
+    }
+  }
+
   const device = await prisma.device.findFirst({
     where: { id, userId },
     select: {
@@ -616,7 +801,7 @@ devicesRouter.post("/:id/disconnect", async (req, res) => {
   const updated = await prisma.device.update({
     where: { id },
     data: {
-      status: DeviceStatus.OFFLINE,
+      status: DeviceStatus.DISCONNECTED,
       telemetryBlocked: true,
       lastSeenAt: null,
     },
@@ -647,8 +832,16 @@ devicesRouter.post("/:id/reconnect", async (req, res) => {
     where: { id },
     data: {
       telemetryBlocked: false,
+      status: DeviceStatus.ONLINE,
+      lastSeenAt: null,
     },
     select: baseDeviceSelect,
+  });
+
+  getIO()?.to(userRoom(userId)).emit("device:status", {
+    deviceId: updated.id,
+    status: updated.status,
+    lastSeenAt: updated.lastSeenAt,
   });
 
   return res.status(200).json({ device: updated });

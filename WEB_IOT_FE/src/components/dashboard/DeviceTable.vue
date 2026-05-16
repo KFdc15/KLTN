@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 
-export type DeviceStatus = "ONLINE" | "OFFLINE" | "WARNING";
+export type DeviceStatus = "ONLINE" | "OFFLINE" | "WARNING" | "DISCONNECTED";
 
 export type DeviceRow = {
   id: string;
@@ -66,6 +66,8 @@ function statusBadgeClasses(status: DeviceStatus) {
       return "bg-red-100 text-red-700 ring-1 ring-inset ring-red-200";
     case "WARNING":
       return "bg-yellow-100 text-yellow-800 ring-1 ring-inset ring-yellow-200";
+    case "DISCONNECTED":
+      return "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200";
     default:
       return "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200";
   }
@@ -79,6 +81,8 @@ function statusLabel(status: DeviceStatus) {
       return "Offline";
     case "WARNING":
       return "Warning";
+    case "DISCONNECTED":
+      return "Disconnected";
     default:
       return status;
   }

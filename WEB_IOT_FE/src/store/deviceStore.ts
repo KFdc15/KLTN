@@ -6,7 +6,7 @@ import { API_BASE_URL, apiRequest } from "../lib/api";
 import { formatRelativeTime } from "../lib/time";
 import { useAuthStore } from "./authStore";
 
-export type DeviceStatus = "ONLINE" | "OFFLINE" | "WARNING";
+export type DeviceStatus = "ONLINE" | "OFFLINE" | "WARNING" | "DISCONNECTED";
 export type ConnectionType = "WIFI" | "WIRED";
 
 export type TelemetryPoint = {
@@ -27,6 +27,23 @@ export type ControlConfig = {
   lightToggle: boolean;
   acToggle: boolean;
   acTargetTemp: boolean;
+};
+
+export type AlertRuleMetric = {
+  threshold?: number | null;
+};
+
+export type AlertRuleConfig = {
+  temperature?: AlertRuleMetric;
+  humidity?: AlertRuleMetric;
+  signal?: AlertRuleMetric;
+};
+
+export type AlertRuleResponse = {
+  override: AlertRuleConfig;
+  defaults: AlertRuleConfig;
+  resolved: AlertRuleConfig;
+  capabilities: Array<"temperature" | "humidity" | "signal">;
 };
 
 export type CameraFramePoint = {
@@ -73,6 +90,12 @@ type DeviceStatusEvent = {
   deviceId: string;
   status: DeviceStatus;
   lastSeenAt: string | null;
+  alert?: {
+    metric: "temperature" | "humidity" | "signal";
+    value: number;
+    threshold: number;
+    operator: ">=" | "<=";
+  } | null;
 };
 
 type TelemetryNewEvent = {
@@ -128,6 +151,22 @@ type CameraFrameEvent = {
 
 let socket: Socket | null = null;
 let relativeTimeTimer: number | null = null;
+
+function formatAlertMetric(metric: "temperature" | "humidity" | "signal") {
+  if (metric === "temperature") return "temperature";
+  if (metric === "humidity") return "humidity";
+  return "signal";
+}
+
+function formatAlertUnit(metric: "temperature" | "humidity" | "signal") {
+  if (metric === "temperature") return "\u00b0C";
+  if (metric === "humidity") return "%";
+  return "dBm";
+}
+
+function formatAlertNumber(value: number) {
+  return Number.isInteger(value) ? `${value}` : value.toFixed(2);
+}
 
 export const useDeviceStore = defineStore("device", {
   state: () => {
@@ -361,11 +400,14 @@ export const useDeviceStore = defineStore("device", {
       device.lastSeenAt = payload.lastSeenAt;
       if (payload.status === "WARNING" && prevStatus !== "WARNING") {
         const label = (device.name ?? "").trim() || device.type;
+        const alertText = payload.alert
+          ? `Device alert at ${formatAlertMetric(payload.alert.metric)} ${formatAlertNumber(payload.alert.value)} ${formatAlertUnit(payload.alert.metric)}.`
+          : `${label} entered WARNING state.`;
         this.pushNotification({
           kind: "device-warning",
           deviceId: device.id,
           title: "Device warning",
-          message: `${label} entered WARNING state.`,
+          message: payload.alert ? `${label}: ${alertText}` : alertText,
           ts: payload.lastSeenAt ?? new Date().toISOString(),
         });
       }
@@ -714,6 +756,48 @@ export const useDeviceStore = defineStore("device", {
         throw err instanceof Error
           ? err
           : new Error("Failed to update control config");
+      }
+    },
+    async getDeviceAlertRules(id: string) {
+      const auth = useAuthStore();
+      if (!auth.accessToken) throw new Error("Not authenticated");
+      const deviceId = (id ?? "").trim();
+      if (!deviceId) throw new Error("Device is required");
+      try {
+        return await apiRequest<AlertRuleResponse>(
+          `/devices/${deviceId}/alert-rules`,
+          {
+            method: "GET",
+            token: auth.accessToken,
+          },
+        );
+      } catch (err) {
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to load alert rules");
+      }
+    },
+    async updateDeviceAlertRules(input: {
+      id: string;
+      rules: AlertRuleConfig;
+    }) {
+      const auth = useAuthStore();
+      if (!auth.accessToken) throw new Error("Not authenticated");
+      const deviceId = (input?.id ?? "").trim();
+      if (!deviceId) throw new Error("Device is required");
+      try {
+        return await apiRequest<AlertRuleResponse>(
+          `/devices/${deviceId}/alert-rules`,
+          {
+            method: "PUT",
+            token: auth.accessToken,
+            body: input.rules ?? {},
+          },
+        );
+      } catch (err) {
+        throw err instanceof Error
+          ? err
+          : new Error("Failed to update alert rules");
       }
     },
     async setLight(input: { id: string; on: boolean }) {

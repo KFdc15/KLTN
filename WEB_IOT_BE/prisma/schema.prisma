@@ -12,6 +12,7 @@ enum DeviceStatus {
   ONLINE
   OFFLINE
   WARNING
+  DISCONNECTED
 }
 
 enum ConnectionType {
@@ -64,11 +65,30 @@ model Device {
   user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
   telemetry Telemetry[]
   controlOverride DeviceControlOverride?
+  alertRule DeviceAlertRule?
   groupMembers DeviceGroupMember[]
 
   @@index([userId])
   @@index([connectionType])
   @@map("devices")
+}
+
+model DeviceAlertRule {
+  id             String   @id @default(uuid()) @db.Uuid
+  deviceId       String   @unique @db.Uuid @map("device_id")
+  temperatureMin Float?   @map("temperature_min")
+  temperatureMax Float?   @map("temperature_max")
+  humidityMin    Float?   @map("humidity_min")
+  humidityMax    Float?   @map("humidity_max")
+  signalMin      Float?   @map("signal_min")
+  signalMax      Float?   @map("signal_max")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@map("device_alert_rules")
 }
 
 model Telemetry {

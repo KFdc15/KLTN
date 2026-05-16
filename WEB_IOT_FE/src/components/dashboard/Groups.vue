@@ -83,7 +83,7 @@ async function removeGroup() {
   if (!ok) return;
   const id = selectedGroup.value.id;
   await groupStore.deleteGroup(id);
-  activeTab.value = groupStore.groups.length ? groupStore.groups[0].id : "new";
+  activeTab.value = groupStore.groups[0]?.id ?? "new";
 }
 
 function toggleDevice(deviceId: string, checked: boolean) {
@@ -112,7 +112,7 @@ watch(
     }
     const stillExists = groupStore.groups.some((g) => g.id === activeTab.value);
     if (!stillExists && activeTab.value !== "new") {
-      activeTab.value = groupStore.groups[0].id;
+      activeTab.value = groupStore.groups[0]?.id ?? "new";
     }
   },
   { immediate: true },
@@ -120,7 +120,7 @@ watch(
 
 onMounted(async () => {
   await Promise.all([groupStore.loadGroups(), deviceStore.loadDevices()]);
-  if (groupStore.groups.length) activeTab.value = groupStore.groups[0].id;
+  if (groupStore.groups.length) activeTab.value = groupStore.groups[0]?.id ?? "new";
 });
 
 function splitMetricValue(value: string) {
@@ -240,6 +240,8 @@ function statusBadgeClasses(status: string) {
       return "bg-red-100 text-red-700 ring-1 ring-inset ring-red-200";
     case "WARNING":
       return "bg-yellow-100 text-yellow-800 ring-1 ring-inset ring-yellow-200";
+    case "DISCONNECTED":
+      return "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200";
     default:
       return "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200";
   }
@@ -253,6 +255,8 @@ function statusLabel(status: string) {
       return "Offline";
     case "WARNING":
       return "Warning";
+    case "DISCONNECTED":
+      return "Disconnected";
     default:
       return status;
   }

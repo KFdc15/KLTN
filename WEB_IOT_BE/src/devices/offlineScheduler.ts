@@ -15,7 +15,7 @@ export function startOfflineScheduler() {
 
 		const stale = await prisma.device.findMany({
 			where: {
-				status: { not: DeviceStatus.OFFLINE },
+				status: { notIn: [DeviceStatus.OFFLINE, DeviceStatus.DISCONNECTED] },
 				lastSeenAt: { lt: cutoff },
 			},
 			select: { id: true, userId: true, lastSeenAt: true },

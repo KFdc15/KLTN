@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import Chart from 'chart.js/auto'
 
-import { useDeviceStore, type CameraFramePoint, type ControlConfig, type Device, type RuntimePoint, type TelemetryPoint } from '../../store/deviceStore'
+import { useDeviceStore, type AlertRuleConfig, type CameraFramePoint, type ControlConfig, type Device, type RuntimePoint, type TelemetryPoint } from '../../store/deviceStore'
 
 const store = useDeviceStore()
 const route = useRoute()
@@ -55,6 +55,102 @@ const controlConfig = computed<ControlConfig>(() => {
 	if (!device.value) return defaultControlConfig('')
 	return device.value.controlConfig ?? defaultControlConfig(device.value.type)
 })
+
+type AlertMetric = 'temperature' | 'humidity' | 'signal'
+
+const alertRulesLoading = ref(false)
+const alertRulesSaving = ref(false)
+const alertRulesError = ref<string | null>(null)
+const alertDefaults = ref<AlertRuleConfig>({})
+const alertResolved = ref<AlertRuleConfig>({})
+const alertCapabilities = ref<AlertMetric[]>([])
+const alertInputs = reactive({
+	temperature: '',
+	humidity: '',
+	signal: '',
+})
+
+function fmtAlertValue(value: number | null | undefined) {
+	if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+	return `${value}`
+}
+
+function metricUnit(metric: AlertMetric) {
+	if (metric === 'temperature') return '°C'
+	if (metric === 'humidity') return '%'
+	return 'dBm'
+}
+
+function setAlertInputs(config: AlertRuleConfig) {
+	alertInputs.temperature = fmtAlertValue(config.temperature?.threshold)
+	alertInputs.humidity = fmtAlertValue(config.humidity?.threshold)
+	alertInputs.signal = fmtAlertValue(config.signal?.threshold)
+}
+
+function parseAlertInput(value: string) {
+	const trimmed = value.trim()
+	if (!trimmed || trimmed === '—') return undefined
+	const n = Number(trimmed)
+	return Number.isFinite(n) ? n : undefined
+}
+
+function buildAlertPayload(): AlertRuleConfig {
+	const payload: AlertRuleConfig = {}
+	const defaults = alertDefaults.value
+
+	const metrics: AlertMetric[] = ['temperature', 'humidity', 'signal']
+	for (const metric of metrics) {
+		if (!alertCapabilities.value.includes(metric)) continue
+		const threshold = parseAlertInput(alertInputs[metric])
+		const defaultThreshold = defaults[metric]?.threshold
+		if (typeof threshold === 'number' && threshold !== defaultThreshold) {
+			payload[metric] = { threshold }
+		}
+	}
+
+	return payload
+}
+
+async function loadAlertRules() {
+	if (!device.value) return
+	alertRulesLoading.value = true
+	alertRulesError.value = null
+	try {
+		const data = await store.getDeviceAlertRules(device.value.id)
+		alertDefaults.value = data.defaults
+		alertResolved.value = data.resolved
+		alertCapabilities.value = data.capabilities as AlertMetric[]
+		setAlertInputs(data.resolved)
+	} catch (err) {
+		alertRulesError.value = err instanceof Error ? err.message : 'Failed to load alert rules'
+	} finally {
+		alertRulesLoading.value = false
+	}
+}
+
+async function saveAlertRules() {
+	if (!device.value || alertRulesSaving.value) return
+	alertRulesSaving.value = true
+	alertRulesError.value = null
+	try {
+		const data = await store.updateDeviceAlertRules({
+			id: device.value.id,
+			rules: buildAlertPayload(),
+		})
+		alertDefaults.value = data.defaults
+		alertResolved.value = data.resolved
+		alertCapabilities.value = data.capabilities as AlertMetric[]
+		setAlertInputs(data.resolved)
+	} catch (err) {
+		alertRulesError.value = err instanceof Error ? err.message : 'Failed to update alert rules'
+	} finally {
+		alertRulesSaving.value = false
+	}
+}
+
+function resetAlertRules() {
+	setAlertInputs(alertDefaults.value)
+}
 
 async function updateControlConfig(patch: Partial<ControlConfig>) {
 	if (!device.value) return
@@ -235,6 +331,8 @@ function statusBadgeClasses(status: Device['status']) {
 			return 'bg-red-100 text-red-700 ring-1 ring-inset ring-red-200'
 		case 'WARNING':
 			return 'bg-yellow-100 text-yellow-800 ring-1 ring-inset ring-yellow-200'
+		case 'DISCONNECTED':
+			return 'bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200'
 		default:
 			return 'bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-200'
 	}
@@ -248,6 +346,8 @@ function statusLabel(status: Device['status']) {
 			return 'OFFLINE'
 		case 'WARNING':
 			return 'WARNING'
+		case 'DISCONNECTED':
+			return 'DISCONNECTED'
 		default:
 			return status
 	}
@@ -495,10 +595,15 @@ function buildChart() {
 
 watch([windowPoints, runtimePoints, cameraFrames, deviceKind], () => buildChart(), { deep: true })
 
+watch(deviceId, () => {
+	void loadAlertRules()
+})
+
 onMounted(async () => {
 	loading.value = true
 	try {
 		if (!store.devices.length) await store.loadDevices()
+		await loadAlertRules()
 	} finally {
 		loading.value = false
 	}
@@ -677,6 +782,74 @@ onBeforeUnmount(() => {
 					<p class="text-sm font-semibold text-gray-900">Latest frame</p>
 					<div class="mt-2 overflow-hidden rounded-2xl bg-gray-100 ring-1 ring-inset ring-gray-200">
 						<img :src="device.cameraFrameUrl" alt="Camera frame" class="h-64 w-full object-cover" />
+					</div>
+				</div>
+			</div>
+
+			<div class="rounded-2xl bg-white p-6 shadow-sm">
+				<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+					<div>
+						<h3 class="text-base font-semibold text-gray-900">Alert rules</h3>
+						<p class="mt-1 text-sm text-gray-500">Thresholds are limited to this device type.</p>
+					</div>
+					<div class="flex items-center gap-2">
+						<button
+							type="button"
+							:disabled="alertRulesLoading || alertRulesSaving"
+							class="rounded-lg border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-700 transition enabled:hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+							@click="resetAlertRules"
+						>
+							Reset
+						</button>
+						<button
+							type="button"
+							:disabled="alertRulesLoading || alertRulesSaving"
+							class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white transition enabled:hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+							@click="saveAlertRules"
+						>
+							{{ alertRulesSaving ? 'Saving...' : 'Save' }}
+						</button>
+					</div>
+				</div>
+
+				<p v-if="alertRulesError" class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+					{{ alertRulesError }}
+				</p>
+
+				<p v-if="alertRulesLoading" class="mt-4 text-sm text-gray-500">Loading alert rules...</p>
+				<p v-else-if="!alertCapabilities.length" class="mt-4 text-sm text-gray-500">
+					This device type does not use telemetry threshold alerts.
+				</p>
+
+				<div v-else class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+					<div v-if="alertCapabilities.includes('temperature')" class="rounded-2xl bg-gray-50 p-4">
+						<p class="text-sm font-semibold text-gray-900">Temperature</p>
+						<p class="mt-1 text-xs text-gray-500">Device alert at or above {{ metricUnit('temperature') }}</p>
+						<label class="mt-3 block text-xs font-medium text-gray-600">
+							Threshold
+							<input v-model="alertInputs.temperature" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900" />
+						</label>
+						<p class="mt-3 text-xs text-gray-500">Active: {{ alertResolved.temperature?.threshold ?? 'â€”' }} {{ metricUnit('temperature') }}</p>
+					</div>
+
+					<div v-if="alertCapabilities.includes('humidity')" class="rounded-2xl bg-gray-50 p-4">
+						<p class="text-sm font-semibold text-gray-900">Humidity</p>
+						<p class="mt-1 text-xs text-gray-500">Device alert at or above {{ metricUnit('humidity') }}</p>
+						<label class="mt-3 block text-xs font-medium text-gray-600">
+							Threshold
+							<input v-model="alertInputs.humidity" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900" />
+						</label>
+						<p class="mt-3 text-xs text-gray-500">Active: {{ alertResolved.humidity?.threshold ?? 'â€”' }} {{ metricUnit('humidity') }}</p>
+					</div>
+
+					<div v-if="alertCapabilities.includes('signal')" class="rounded-2xl bg-gray-50 p-4">
+						<p class="text-sm font-semibold text-gray-900">Signal</p>
+						<p class="mt-1 text-xs text-gray-500">Device alert at or below {{ metricUnit('signal') }}</p>
+						<label class="mt-3 block text-xs font-medium text-gray-600">
+							Threshold
+							<input v-model="alertInputs.signal" class="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-900" />
+						</label>
+						<p class="mt-3 text-xs text-gray-500">Active: {{ alertResolved.signal?.threshold ?? 'â€”' }} {{ metricUnit('signal') }}</p>
 					</div>
 				</div>
 			</div>
